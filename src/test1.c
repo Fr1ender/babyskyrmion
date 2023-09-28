@@ -35,15 +35,15 @@ typedef struct {
 
 /* User-defined routines */
 
-PetscErrorCode FormInitialGuess(AppCtx * ,Vec , Vec , Vec ); /*\phi_1 \phi_2 \phi_3*/
-PetscErrorCode FormFunction(Tao, Vec, Vec, Vec, PetscReal *, void *);
+PetscErrorCode FormInitialGuess(AppCtx * ,Vec ); /*\phi_1 \phi_2 \phi_3*/
+PetscErrorCode FormFunction(Tao, Vec, PetscReal *, void *);
 PetscReal      FuncComm(PetscReal, PetscReal, PetscReal );
 PetscErrorCode FormGradient(Tao, Vec, Vec, void *);
 PetscErrorCode FormHessian(Tao, Vec, Mat, Mat, void *);
 PetscErrorCode HessianProductMat(Mat, Vec, Vec);
 PetscErrorCode HessianProduct(void *, Vec, Vec);
 //PetscErrorCode MatrixFreeHessian(Tao, Vec, Mat, Mat, void *);
-PetscErrorCode FormFunctionGradient(Tao, Vec, Vec, Vec, PetscReal *, Vec, void *);
+PetscErrorCode FormFunctionGradient(Tao, Vec, PetscReal *, Vec, void *);
 
 
 int main(int argc, char **argv){
@@ -90,7 +90,7 @@ int main(int argc, char **argv){
 
 
   /* Allocate vectors */
-  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim*3, &user.y)); 
+  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim*3, &user.y)); // *3 
   PetscCall(VecDuplicate(user.y, &user.s));
   PetscCall(VecDuplicate(user.y, &x));
   /*
@@ -102,7 +102,7 @@ int main(int argc, char **argv){
   PetscCall(TaoSetType(tao, TAOLMVM));
 
   /* Set solution vector with an initial guess */
-  PetscCall(FormInitialGuess(&user, x, y, z));
+  PetscCall(FormInitialGuess(&user, x));
   PetscCall(TaoSetSolution(tao, x));
 
   /* Set routine for function and gradient evaluation */
@@ -136,34 +136,35 @@ int main(int argc, char **argv){
 
 
 */
-PetscErrorCode FormInitialGuess(AppCtx *user, Vec X , Vec Y, Vec Z)
+PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
 {
   PetscReal hx = user->hx, hy = user->hy, bound = user->region;
   PetscReal val1,val2,val3, x, y;
-  PetscInt  i, j, k, nx = user->mx, ny = user->my, l = user->lambda;
+  PetscInt  i, j, k, n, m, nx = user->mx, ny = user->my, l = user->lambda;
 
   /* Compute initial guess */
   PetscFunctionBeginUser;
   for(j = 0; j < ny; j++){
     y = -1 * bound + (j + 1) * hy;
     for(i = 0; i < nx; i++){
+
       k = nx * j + i;
+      n = k + nx * ny;
+      m = l + nx * ny; /* combine \phi1 \phi2 \phi3 into one vector X*/
+
       x = -1 * bound + (i + 1) *hx; //except bound temporarily
+
       val1 = FuncComm(l, x, y) * l * l * (x * x + y * y) - 1.0; 
       val2 = FuncComm(l,x,y) * 2.0 * l * x;
       val3 = FuncComm(l,x,y) * -2.0 * l * y;
       PetscCall(VecSetValues(X, 1, &k, &val1, ADD_VALUES));
-      PetscCall(VecSetValues(Y, 1, &k, &val2, ADD_VALUES));
-      PetscCall(VecSetValues(Z, 1, &k, &val3, ADD_VALUES));
+      PetscCall(VecSetValues(X, 1, &n, &val2, ADD_VALUES));
+      PetscCall(VecSetValues(X, 1, &m, &val3, ADD_VALUES));
     }
   } 
 
   PetscCall(VecAssemblyBegin(X));
   PetscCall(VecAssemblyEnd(X));
-  PetscCall(VecAssemblyBegin(Y));
-  PetscCall(VecAssemblyEnd(Y));
-  PetscCall(VecAssemblyBegin(Z));
-  PetscCall(VecAssemblyEnd(Z));
   
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -185,10 +186,10 @@ PetscReal FuncComm(PetscReal Lambda, PetscReal x, PetscReal y){
    f   - the newly evaluated function
    G   - the newly evaluated gradient
 */
-PetscErrorCode FormFunctionGradient(Tao tao, Vec X, Vec Y, Vec Z, PetscReal *f, Vec G, void *ptr)
+PetscErrorCode FormFunctionGradient(Tao tao, Vec X, PetscReal *f, Vec G, void *ptr)
 {
   PetscFunctionBeginUser;
-  PetscCall(FormFunction(tao, X, Y,Z, f, ptr));
+  PetscCall(FormFunction(tao, X, f, ptr));
   PetscCall(FormGradient(tao, X, G, ptr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -198,7 +199,7 @@ FormFunction - Evaluate our energy integral;
 
 */
 
-PetscErrorCode FormFunction(Tao tao, Vec X, Vec Y, Vec Z, PetscReal *f,void *ptr )
+PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 {
 
   AppCtx            *user = (AppCtx *)ptr;
@@ -211,8 +212,6 @@ PetscErrorCode FormFunction(Tao tao, Vec X, Vec Y, Vec Z, PetscReal *f,void *ptr
   PetscFunctionBeginUser;
   /* Get pointer to vector data */
   PetscCall(VecGetArrayRead(X,&x));
-  PetscCall(VecGetArrayRead(Y,&y));
-  PetscCall(VecGetArrayRead(Z,&z));
 
   /* Compute function */
   for( j = -1; j < ny; j++){
@@ -222,6 +221,6 @@ PetscErrorCode FormFunction(Tao tao, Vec X, Vec Y, Vec Z, PetscReal *f,void *ptr
   }
 
 
-
+  PetscFunctionReturn(PETSC_SUCCESS);
 }
 
