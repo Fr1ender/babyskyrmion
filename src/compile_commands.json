@@ -1,0 +1,52 @@
+[
+    {
+        "arguments": [
+            "/usr/bin/gcc",
+            "-c",
+            "-fPIC",
+            "-Wall",
+            "-Wwrite-strings",
+            "-Wno-unknown-pragmas",
+            "-Wno-lto-type-mismatch",
+            "-fstack-protector",
+            "-fvisibility=hidden",
+            "-g3",
+            "-O0",
+            "-I/home/pisces4u/projects/petsc/include",
+            "-I/home/pisces4u/projects/petsc/arch-linux-c-debug/include",
+            "-I/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi",
+            "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+            "-pthread",
+            "-o",
+            "test1",
+            "test1.c"
+        ],
+        "directory": "/home/pisces4u/babyskyrmion/src",
+        "file": "test1.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-I/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi",
+            "-I/usr/lib/x86_64-linux-gnu/openmpi/include",
+            "-pthread",
+            "-fPIC",
+            "-Wall",
+            "-Wwrite-strings",
+            "-Wno-unknown-pragmas",
+            "-Wno-lto-type-mismatch",
+            "-fstack-protector",
+            "-fvisibility=hidden",
+            "-g3",
+            "-O0",
+            "-I/home/pisces4u/projects/petsc/include",
+            "-I/home/pisces4u/projects/petsc/arch-linux-c-debug/include",
+            "-o",
+            "test1",
+            "test1.c"
+        ],
+        "directory": "/home/pisces4u/babyskyrmion/src",
+        "file": "test1.c"
+    }
+]
