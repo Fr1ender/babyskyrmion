@@ -51,7 +51,7 @@ PetscErrorCode FormFunctionGradient(Tao, Vec, PetscReal *, Vec, void *);
 int main(int argc, char **argv){
   PetscInt    mx = 10; /* discretization in x-direction */
   PetscInt    my = 10; /* discretization in y-direction */
-  Vec         x,y,z;       /* solution, gradient vectors */
+  Vec         x;       /* solution, gradient vectors */
   PetscBool   flg;     /* A return value when checking for use options */
   Tao         tao;     /* Tao solver context */
   Mat         H;       /* Hessian matrix */
@@ -294,7 +294,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       // flin -= (v + vr + vt) / 3.0 ;
     }
   }
-  /* upper triangle */
+  /* upper triangle*/
   for (j = 0; j <= ny; j++) {
     for (i = 0; i <= nx; i++) {
       k1  = nx * j + i;
