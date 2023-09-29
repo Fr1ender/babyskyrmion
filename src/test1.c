@@ -29,7 +29,7 @@ typedef struct {
   PetscReal region;     /* Region size parameter */
   PetscInt  mx, my;     /* discretization in x- and y-directions */
   PetscInt  ndim;       /* problem dimension */
-  Vec       s, y, xvec; /* work space for computing Hessian */
+  Vec       s, y, xvec; /* work space for computing Hessian (?)*/
   PetscReal hx, hy;     /* mesh spacing in x- and y-directions */
 } AppCtx;
 
@@ -148,7 +148,7 @@ PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
     y = -1 * bound + (j + 1) * hy;
     for(i = 0; i < nx; i++){
 
-      k = nx * j + i;
+      k = ny * j + i;
       n = k + nx * ny;
       m = l + nx * ny; /* combine \phi1 \phi2 \phi3 into one vector X*/
 
@@ -204,19 +204,72 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, area, three = 3.0, p5 = 0.5;
-  PetscReal          zero = 0.0, vb, vl, vr, vt, dvdx, dvdy, flin = 0.0, fquad = 0.0;
+  PetscReal          zero = 0.0, vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, flin = 0.0, fquad = 0.0;
   PetscReal          v;//, cdiv3 = user->param / three;
-  const PetscScalar *x,*y,*z;
-  PetscInt           nx = user->mx, ny = user->my, i, j, k;
+  const PetscScalar *x;
+  PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
+  PetscInt           dim;
 
   PetscFunctionBeginUser;
   /* Get pointer to vector data */
   PetscCall(VecGetArrayRead(X,&x));
+  dim = nx * ny;
 
   /* Compute function */
+  for (j = -1; j < ny; j++) {
+    for (i = -1; i < nx; i++) {
+      k1  = nx * j + i;
+      k2  = nx * j + i + dim;
+      k3  = nx * j + i + dim * 2;
+      /* ||\nabla /phi_1||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k1];
+      if (i < nx - 1 && j > -1) vr = x[k1 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k1 + nx];
+      dp1dx = (vr - v) / hx;
+      dp1dy = (vt - v) / hy;
+      fquad += dp1dx * dp1dx + dp1dy * dp1dy;
+
+      /* ||\nabla /phi_2||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k2];
+      if (i < nx - 1 && j > -1) vr = x[k2 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k2 + nx];
+      dp2dx = (vr - v) / hx;
+      dp2dy = (vt - v) / hy;
+      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
+
+      /* ||\nabla /phi_3||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k3];
+      if (i < nx - 1 && j > -1) vr = x[k3 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k3 + nx];
+      dp3dx = (vr - v) / hx;
+      dp3dy = (vt - v) / hy;
+      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+      fquad = user->param_c2 * fquad / 2.0;
+      // flin -= (v + vr + vt) / 3.0 ;
+    }
+  }
   for( j = -1; j < ny; j++){
     for(i = -1; i < nx; i++){
-
+      k1  = nx * j + i;
+      vb = zero;
+      vl = zero;
+      v  = zero;
+      if (i < nx && j > 0) vb = x[k1 - nx];
+      if (i > 0 && j < ny) vl = x[k1 - 1];
+      if (i < nx && j < ny) v = x[k1];
+      dvdx  = (v - vl) / hx;
+      dvdy  = (v - vb) / hy;
+      fquad = fquad + dvdx * dvdx + dvdy * dvdy;
+      flin  = flin - (vb + vl + v) / 3.0;
     }
   }
 
