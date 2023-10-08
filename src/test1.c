@@ -16,8 +16,6 @@ See Juha Jaykka and Martin Speight PHYSICAL REVIEW D 82, 125030 (2010) and PETSc
 PETSc library has many example for numerical problem. "eptorsion1.c", which is one of the examples is very helpful for me to code this program.
 
 */
-#include "petscsys.h"
-#include "petscsystypes.h"
 #include "petsctao.h"
 #include "petscvec.h"
 
@@ -41,7 +39,7 @@ PetscErrorCode FormInitialGuess(AppCtx * ,Vec ); /*\phi_1 \phi_2 \phi_3*/
 PetscErrorCode FormFunction(Tao, Vec, PetscReal *, void *);
 PetscReal      FuncComm(PetscReal, PetscReal, PetscReal );
 PetscErrorCode FormGradient(Tao, Vec, Vec, void *);
-PetscErrorCode FormHessian(Tao, Vec, Mat, Mat, void *);
+PetscErrorCode FormHessian(Tao, Vec, Mat, Mat, void *); // TaoLMVM doesn't need Hessian!!!
 PetscErrorCode HessianProductMat(Mat, Vec, Vec);
 PetscErrorCode HessianProduct(void *, Vec, Vec);
 //PetscErrorCode MatrixFreeHessian(Tao, Vec, Mat, Mat, void *);
@@ -353,3 +351,92 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
+  AppCtx          *user = (AppCtx *)ptr;
+  PetscReal         zero = 0.0, p5 = 0.5, val;
+  PetscInt          nx = user->mx, ny = user->my, dim, i,j,k1,k2,k3,ind;
+  PetscReal         hx = user->hx, hy = user->hy;
+  PetscReal         vb, vl, vr, vt,v;
+  PetscReal         dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, flin = 0.0, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0, area;
+  const PetscScalar *x;
+
+  PetscFunctionBeginUser;
+  /* Initialize vector for gradient*/
+  PetscCall(VecSet(G, zero));
+  dim = nx * ny;
+
+  PetscCall(VecGetArrayRead(X, &x));
+  /*Lower triangular contiribution*/
+  for (j = -1; j < ny; j++) {
+    for (i = -1; i < nx; i++) {
+      k1  = nx * j + i;
+      k2  = nx * j + i + dim;
+      k3  = nx * j + i + dim * 2;
+      /* ||\nabla /phi_1||^2 */
+      v  = 1.0;
+      vr = 1.0;
+      vt = 1.0;
+      if (i >= 0 && j >= 0) v = x[k1];
+      if (i < nx - 1 && j > -1) vr = x[k1 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k1 + nx];
+      dp1dx = (vr - v) / hx;
+      dp1dy = (vt - v) / hy;
+      fquad += dp1dx / hx + dp1dy / hy;
+
+      /* ||\nabla /phi_2||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k2];
+      if (i < nx - 1 && j > -1) vr = x[k2 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k2 + nx];
+      dp2dx = (vr - v) / hx;
+      dp2dy = (vt - v) / hy;
+      fquad += dp2dx / hx + dp2dy / hx;
+
+
+      /* ||\nabla /phi_3||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k3];
+      if (i < nx - 1 && j > -1) vr = x[k3 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k3 + nx];
+      dp3dx = (vr - v) / hx;
+      dp3dy = (vt - v) / hy;
+
+      fquad += dp3dx / hx + dp3dy / hy;
+
+      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
+      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      fskyrm += f12 * f12;
+      f12 = 0.0;
+
+      fpot += PotentialTerm(user, x[k3]);
+      /* unfinished
+      if (i != -1 && j != -1) {
+        ind = k1;
+        val = -dvdx / hx - dvdy / hy - cdiv3;
+        PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
+      }
+      if (i != nx - 1 && j != -1) {
+        ind = k1 + 1;
+        val = dvdx / hx - cdiv3;
+        PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
+      }
+      if (i != -1 && j != ny - 1) {
+        ind = k1 + nx;
+        val = dvdy / hy - cdiv3;
+        PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
+      }
+      */
+    }
+  } 
+  /* Assemble Vector */
+  PetscCall(VecAssemblyBegin(G));
+  PetscCall(VecAssemblyEnd(G));
+
+  area = p5 * hx * hy;
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
