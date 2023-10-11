@@ -86,8 +86,14 @@ int main(int argc, char **argv){
   user.ndim = mx * my;
   user.mx   = mx;
   user.my   = my;
-  user.hx   = 2 * user.region / (mx + 1); /* lattice size */
+
+  user.hx   = 2 * user.region / (mx + 1);   //lattice size 
   user.hy   = 2 * user.region / (my + 1);
+  
+  /*
+  user.hx   = 0.1;
+  user.hy   = 0.1;
+  */
 
 
   /* Allocate vectors */
@@ -112,7 +118,7 @@ int main(int argc, char **argv){
   /* Set Hessian */
   PetscCall(MatCreateSeqAIJ(PETSC_COMM_SELF, user.ndim, user.ndim, 5, NULL, &H));
   PetscCall(MatSetOption(H, MAT_SYMMETRIC, PETSC_TRUE));
-  PetscCall(TaoSetHessian(tao, H, H, FormHessian, (void *)&user));
+  //PetscCall(TaoSetHessian(tao, H, H, FormHessian, (void *)&user));
 
 
   /* Check for any TAO command line options */
@@ -133,8 +139,8 @@ int main(int argc, char **argv){
 
 /* Evaluate potential term. In this problem, U(\phi) = \phi_3*/
 
-PetscReal Potentialterm(AppCtx *user ,PetscReal phi_3){
-  return -0.5 * user->param_c0 * phi_3 * phi_3;
+PetscReal PotentialTerm(AppCtx *user ,PetscReal phi_3){
+  return  0.5 * user->param_c0 * phi_3 * phi_3;
 }
 
 /* for evaluating skyrm term
@@ -164,6 +170,9 @@ PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
 
   /* Compute initial guess */
   PetscFunctionBeginUser;
+
+  //bound = - nx / 2.0 * hx;
+
   for(j = 0; j < ny; j++){
     y = -1 * bound + (j + 1) * hy;
     for(i = 0; i < nx; i++){
@@ -289,7 +298,6 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       f12 = 0.0;
 
       fpot += PotentialTerm(user, x[k3]);
-
       // flin -= (v + vr + vt) / 3.0 ;
     }
   }
