@@ -16,9 +16,8 @@ See Juha Jaykka and Martin Speight PHYSICAL REVIEW D 82, 125030 (2010) and PETSc
 PETSc library has many example for numerical problem. "eptorsion1.c", which is one of the examples is very helpful for me to code this program.
 
 */
-#include "petscsystypes.h"
 #include "petsctao.h"
-#include "petscvec.h"
+#include "petscviewer.h"
 
 static char help[] = "Waai!";
 
@@ -28,7 +27,7 @@ typedef struct {
   PetscReal region;     /* Region size parameter */
   PetscInt  mx, my;     /* discretization in x- and y-directions */
   PetscInt  ndim;       /* problem dimension */
-  Vec       s, y, xvec; /* work space for computing Hessian (?)*/
+  //Vec       s, y, xvec; /* work space for computing Hessian (?)*/
   PetscReal hx, hy;     /* mesh spacing in x- and y-directions */
 } AppCtx;
 
@@ -45,18 +44,20 @@ PetscErrorCode HessianProductMat(Mat, Vec, Vec);
 PetscErrorCode HessianProduct(void *, Vec, Vec);
 //PetscErrorCode MatrixFreeHessian(Tao, Vec, Mat, Mat, void *);
 PetscErrorCode FormFunctionGradient(Tao, Vec, PetscReal *, Vec, void *);
+PetscErrorCode EnergyDensity(Vec ,Vec ,void *);
 
 
 int main(int argc, char **argv){
   PetscInt    mx = 10; /* discretization in x-direction */
   PetscInt    my = 10; /* discretization in y-direction */
-  Vec         x;       /* solution, gradient vectors */
+  Vec         x,E;       /* solution, energy density */
   PetscBool   flg;     /* A return value when checking for use options */
   Tao         tao;     /* Tao solver context */
-  Mat         H;       /* Hessian matrix */
+  //Mat         H;       /* Hessian matrix */
   AppCtx      user;    /* application context */
   PetscMPIInt size;    /* number of processes */
   PetscReal one = 1.0;
+  PetscViewer Eout;
 
     
   /* Initialize TAO,PETSc */
@@ -97,13 +98,11 @@ int main(int argc, char **argv){
 
 
   /* Allocate vectors */
-  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim*3, &user.y)); // *3 for three fields
-  PetscCall(VecDuplicate(user.y, &user.s));
-  PetscCall(VecDuplicate(user.y, &x));
-  /*
-  PetscCall(VecDuplicate(user.y, &y));
-  PetscCall(VecDuplicate(user.y, &z));
-  */
+  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim*3, &x)); /* *3 for three fields */
+  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim, &E)); 
+  //PetscCall(VecDuplicate(x, &user.s));
+  //PetscCall(VecDuplicate(x, &user.y));
+
   /* Create TAO solver and set desired solution method */
   PetscCall(TaoCreate(PETSC_COMM_SELF, &tao));
   PetscCall(TaoSetType(tao, TAOLMVM));
@@ -116,8 +115,8 @@ int main(int argc, char **argv){
   PetscCall(TaoSetObjectiveAndGradient(tao, NULL, FormFunctionGradient, (void *)&user));
 
   /* Set Hessian */
-  PetscCall(MatCreateSeqAIJ(PETSC_COMM_SELF, user.ndim, user.ndim, 5, NULL, &H));
-  PetscCall(MatSetOption(H, MAT_SYMMETRIC, PETSC_TRUE));
+  //PetscCall(MatCreateSeqAIJ(PETSC_COMM_SELF, user.ndim, user.ndim, 5, NULL, &H));
+  //PetscCall(MatSetOption(H, MAT_SYMMETRIC, PETSC_TRUE));
   //PetscCall(TaoSetHessian(tao, H, H, FormHessian, (void *)&user));
 
 
@@ -126,12 +125,25 @@ int main(int argc, char **argv){
 
   /* SOLVE THE APPLICATION */
   PetscCall(TaoSolve(tao));
-
   PetscCall(TaoDestroy(&tao));
+
+  /* compute energy density */
+
+  PetscCall(EnergyDensity(x,E, (void *)&user));
+
+  //PetscPrintf(MPI_COMM_WORLD,"nekoneko%o\n",i);
+  PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "energydensity.dat", &Eout));
+  PetscCall(PetscViewerPushFormat(Eout, PETSC_VIEWER_ASCII_COMMON));
+  PetscCall(VecView(E, Eout));
+  PetscCall(PetscViewerPopFormat(Eout));
+  PetscCall(PetscViewerDestroy(&Eout));
+  /*
+  PetscCall(MatDestroy(&H));
   PetscCall(VecDestroy(&user.s));
   PetscCall(VecDestroy(&user.y));
+  */
+
   PetscCall(VecDestroy(&x));
-  PetscCall(MatDestroy(&H));
 
   PetscCall(PetscFinalize());
   return 0;
@@ -343,7 +355,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
       f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
       f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
-      fskyrm = f12*f12;
+      fskyrm += f12*f12;
       f12 = 0;
       fpot += PotentialTerm(user, x[k3]);
     }
@@ -593,3 +605,106 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
   PetscCall(VecScale(G, area));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
+
+
+/*
+  EnergyDensity(Vec X,Vec E,void *ptr){
+    compute energy density of this system;
+    Input 
+    X    : input Vector (value of \phi on each lattice)
+    *ptr : user context 
+    Output
+    E : output vector (energydensity of each point)
+
+
+*/
+
+PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
+  AppCtx            *user = (AppCtx *)ptr;
+  PetscReal          hx = user->hx, hy = user->hy, p5 = 0.5;
+  PetscReal          zero = 0.0, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
+  PetscReal          v,val;//, cdiv3 = user->param / three;
+  const PetscScalar *x;
+  PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
+  PetscInt           dim,ind;
+
+  PetscFunctionBeginUser;
+  /* Get pointer to vector data */
+  PetscCall(VecGetArrayRead(X,&x));
+  dim = nx * ny;
+
+  /* 
+      Compute energy density
+  */
+
+  for (j = -1; j < ny; j++) {
+    for (i = -1; i < nx; i++) {
+      k1  = nx * j + i;
+      k2  = nx * j + i + dim;
+      k3  = nx * j + i + dim * 2;
+      /* ||\nabla /phi_1||^2 */
+      v  = 1.0;
+      vr = 1.0;
+      vt = 1.0;
+      if (i >= 0 && j >= 0) v = x[k1];
+      if (i < nx - 1 && j > -1) vr = x[k1 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k1 + nx];
+      dp1dx = (vr - v) / hx;
+      dp1dy = (vt - v) / hy;
+      fquad = dp1dx * dp1dx + dp1dy * dp1dy;
+
+      /* ||\nabla /phi_2||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k2];
+      if (i < nx - 1 && j > -1) vr = x[k2 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k2 + nx];
+      dp2dx = (vr - v) / hx;
+      dp2dy = (vt - v) / hy;
+      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
+
+
+      /* ||\nabla /phi_3||^2 */
+      v  = zero;
+      vr = zero;
+      vt = zero;
+      if (i >= 0 && j >= 0) v = x[k3];
+      if (i < nx - 1 && j > -1) vr = x[k3 + 1];
+      if (i > -1 && j < ny - 1) vt = x[k3 + nx];
+      dp3dx = (vr - v) / hx;
+      dp3dy = (vt - v) / hy;
+
+      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+      // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
+
+      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
+      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      fskyrm = f12 * f12;
+      //f12 = 0.0;
+
+      fpot = PotentialTerm(user, x[k3]);
+      fquad  = user->param_c2 * fquad / 2.0;
+      fskyrm = p5 * user->param_c4 * fskyrm;
+
+      val = 0;
+      ind = k1;
+      if( j >= 0 && i >= 0){
+        val = fquad + fskyrm + fpot;
+        PetscCall(VecSetValues(E, 1, &ind, &val, INSERT_VALUES));
+      }
+
+      fquad = zero;
+    }
+  }
+  /* assemble vector */
+  PetscCall(VecRestoreArrayRead(X, &x));
+  PetscCall(VecAssemblyBegin(E));
+  PetscCall(VecAssemblyEnd(E));
+
+  //area = p5 * hx * hy;
+  //*f   = area * (fquad + fskyrm + fpot);
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+

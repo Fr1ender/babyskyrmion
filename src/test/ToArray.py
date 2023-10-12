@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 
 def main():
-  mx = 20
-  my = 20
+  mx = 200
+  my = 200
   region = 10
   dim = mx
   hx   = 2 * region / (mx + 1)
@@ -12,7 +12,7 @@ def main():
 
   #a = np.zeros(dim*dim*3)
 
-  data = np.loadtxt('takosu.dat')
+  data = np.loadtxt('energydensity.dat')
 
   phi1 = np.zeros((dim,dim))
   #output = np.zeros((dim,dim,dim))
@@ -21,7 +21,7 @@ def main():
     for i in range (dim):
       phi1[i][j] = data[i + j*dim]
 
-  with open ("goodd.dat",'w') as out:
+  with open ("densityplot.dat",'w') as out:
    for i in range(dim):
     for j in range(dim):
       print( -region + (i+1)*hx,-region + (j+1)*hy, phi1[i][j], sep=" ", file=out)
