@@ -1,6 +1,6 @@
 /*
 My object is minimizing static energy functional for baby Skyrm model to get the field \phi.
-\phi is a SO(2) triplet scaler field.
+\phi is a SO(2) triplet scaler field.    Last update '23 10 18
 
 Baby skyrm model is 
 \mathcal{L} = 1/2 c_2\partial_\mu\phi^{a}\partial^{\mu}\phi_a \frac{1}{4}F_{\mu}{\nu}F^{\mu}{\nu} -c_0\frac{1}{2}U(\phi)^2
@@ -19,7 +19,7 @@ PETSc library has many example for numerical problem. "eptorsion1.c", which is o
 #include "petsctao.h"
 #include "petscviewer.h"
 
-static char help[] = "Waai!";
+static char help[] = "this program minimumize some energy functional. -mx and -my is option for lattice size";
 
 typedef struct {
   PetscReal param_c2, param_c4, param_c0;      /* model parameters */
@@ -122,7 +122,6 @@ int main(int argc, char **argv){
 
   /* Check for any TAO command line options */
   PetscCall(TaoSetFromOptions(tao));
-
   /* SOLVE THE APPLICATION */
   PetscCall(TaoSolve(tao));
   PetscCall(TaoDestroy(&tao));
@@ -246,7 +245,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, area, p5 = 0.5;
   PetscReal          zero = 0.0, vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
-  PetscReal          v;//, cdiv3 = user->param / three;
+  PetscReal          v,v1,v2,v3;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
   PetscInt           dim;
@@ -277,6 +276,8 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
       dp1dx = (vr - v) / hx;
       dp1dy = (vt - v) / hy;
+      v1 = v;
+
       fquad += dp1dx * dp1dx + dp1dy * dp1dy;
 
       /* ||\nabla /phi_2||^2 */
@@ -288,6 +289,8 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
       dp2dx = (vr - v) / hx;
       dp2dy = (vt - v) / hy;
+      v2 = v;
+
       fquad += dp2dx * dp2dx + dp2dy * dp2dy;
 
 
@@ -300,12 +303,16 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
       dp3dx = (vr - v) / hx;
       dp3dy = (vt - v) / hy;
-
+      v3 = v;
+ 
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
       // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
 
-      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
-      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      
+
+      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
+      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
+      
       fskyrm += f12 * f12;
       f12 = 0.0;
 
@@ -329,6 +336,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       dp1dx = (v - vl) / hx;
       dp1dy = (v - vb) / hy;
       fquad += dp1dx * dp1dx + dp1dy * dp1dy;
+      v1 = v;
 
       /* ||\nabla /phi_2||^2 */
       vb = zero;
@@ -340,7 +348,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       dp2dx = (v - vl) / hx;
       dp2dy = (v - vb) / hy;
       fquad += dp2dx * dp2dx + dp2dy * dp2dy;
-
+      v2 = v;
 
       /* ||\nabla /phi_3||^2 */
       vb = zero;
@@ -352,9 +360,10 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       dp3dx = (v - vl) / hx;
       dp3dy = (v - vb) / hy;
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+      v3 = v;
 
-      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
-      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
+      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
       fskyrm += f12*f12;
       f12 = 0;
       fpot += PotentialTerm(user, x[k3]);
@@ -377,7 +386,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
   PetscReal         zero = 0.0, p5 = 0.5, val;
   PetscInt          nx = user->mx, ny = user->my, dim, i,j,k1,k2,k3,ind;
   PetscReal         hx = user->hx, hy = user->hy;
-  PetscReal         vb, vl, vr, vt,v;
+  PetscReal         vb, vl, vr, vt,v,v1,v2,v3;
   PetscReal         dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy,f12 = 0.0, area;
   const PetscScalar *x;
 
@@ -402,6 +411,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
       dp1dx = (vr - v) / hx;
       dp1dy = (vt - v) / hy;
+      v1 = v;
 
       /* ||\nabla /phi_2||^2 */
       v  = zero;
@@ -412,6 +422,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
       dp2dx = (vr - v) / hx;
       dp2dy = (vt - v) / hy;
+      v2 = v;
 
       /* ||\nabla /phi_3||^2 */
       v  = zero;
@@ -422,19 +433,20 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
       dp3dx = (vr - v) / hx;
       dp3dy = (vt - v) / hy;
+      v3 = v;
 
-      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
-      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
+      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
 
       // following variable is derivative of skyrm term
       PetscReal ddeddp1dx,ddeddp1dy,ddeddp2dx,ddeddp2dy,ddeddp3dx,ddeddp3dy;
       PetscReal dedp1,dedp2,dedp3;
-      ddeddp1dx = (user->param_c4 * f12 * (x[k3] * dp2dy - x[k2] * dp3dy) ) / hx;
-      ddeddp1dy = (user->param_c4 * f12 * (x[k2] * dp2dx - x[k3] * dp2dy) ) / hy;
-      ddeddp2dx = (user->param_c4 * f12 * (x[k1] * dp3dy - x[k3] * dp1dy) ) / hx;
-      ddeddp2dy = (user->param_c4 * f12 * (x[k3] * dp3dy - x[k1] * dp3dy) ) / hy;
-      ddeddp3dx = (user->param_c4 * f12 * (x[k2] * dp1dy - x[k1] * dp2dy) ) / hx;
-      ddeddp3dy = (user->param_c4 * f12 * (x[k1] * dp2dy - x[k2] * dp1dy) ) / hy;
+      ddeddp1dx = (user->param_c4 * f12 * (v3 * dp2dy - v2 * dp3dy) ) / hx;
+      ddeddp1dy = (user->param_c4 * f12 * (v2 * dp2dx - v3 * dp2dy) ) / hy;
+      ddeddp2dx = (user->param_c4 * f12 * (v1 * dp3dy - v3 * dp1dy) ) / hx;
+      ddeddp2dy = (user->param_c4 * f12 * (v3 * dp3dy - v1 * dp3dy) ) / hy;
+      ddeddp3dx = (user->param_c4 * f12 * (v2 * dp1dy - v1 * dp2dy) ) / hx;
+      ddeddp3dy = (user->param_c4 * f12 * (v1 * dp2dy - v2 * dp1dy) ) / hy;
       dedp1     =  user->param_c4 * f12 * (dp2dx * dp3dy - dp3dx * dp2dy);
       dedp2     =  user->param_c4 * f12 * (dp3dx * dp1dy - dp1dx * dp3dy);
       dedp3     =  user->param_c4 * f12 * (dp1dx * dp2dy - dp2dx * dp1dy);
@@ -623,7 +635,7 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, p5 = 0.5;
   PetscReal          zero = 0.0, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
-  PetscReal          v,val;//, cdiv3 = user->param / three;
+  PetscReal          v,v1,v2,v3,val;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
   PetscInt           dim,ind;
@@ -652,6 +664,7 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       dp1dx = (vr - v) / hx;
       dp1dy = (vt - v) / hy;
       fquad = dp1dx * dp1dx + dp1dy * dp1dy;
+      v1 = v;
 
       /* ||\nabla /phi_2||^2 */
       v  = zero;
@@ -663,7 +676,7 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       dp2dx = (vr - v) / hx;
       dp2dy = (vt - v) / hy;
       fquad += dp2dx * dp2dx + dp2dy * dp2dy;
-
+      v2 = v;
 
       /* ||\nabla /phi_3||^2 */
       v  = zero;
@@ -674,12 +687,13 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
       dp3dx = (vr - v) / hx;
       dp3dy = (vt - v) / hy;
+      v3 = v;
 
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
       // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
 
-      f12 = x[k1]*dp2dx*dp3dy + x[k3]*dp1dx*dp2dy + x[k2]*dp3dx*dp1dy;
-      f12 -= x[k2]*dp1dx*dp3dy + x[k3]*dp2dx*dp1dy + x[k1]*dp3dx*dp2dy;
+      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
+      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
       fskyrm = f12 * f12;
       //f12 = 0.0;
 
