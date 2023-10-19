@@ -57,7 +57,7 @@ int main(int argc, char **argv){
   AppCtx      user;    /* application context */
   PetscMPIInt size;    /* number of processes */
   PetscReal one = 1.0;
-  PetscViewer Eout,taoout;
+  PetscViewer Eout;
 
     
   /* Initialize TAO,PETSc */
@@ -73,6 +73,8 @@ int main(int argc, char **argv){
   user.param_c4 = one;
   user.lambda   = one;
   user.region   = 10.0;
+  user.hx   = 0.1;
+  user.hy   = 0.1;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-my", &my, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-mx", &mx, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc0", &user.param_c0, &flg));
@@ -88,13 +90,13 @@ int main(int argc, char **argv){
   user.mx   = mx;
   user.my   = my;
 
+  user.region = (mx - 1) / 2.0 * user.hx;
+
+  /* old version
   user.hx   = 2 * user.region / (mx + 1);   //lattice size 
   user.hy   = 2 * user.region / (my + 1);
-  
-  /*
-  user.hx   = 0.1;
-  user.hy   = 0.1;
-  */
+  */ 
+
 
 
   /* Allocate vectors */
@@ -263,6 +265,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
   PetscInt           dim;
+  PetscReal pnorm, flag = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
 
   PetscFunctionBeginUser;
   /* Get pointer to vector data */
@@ -321,6 +324,8 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
  
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
       // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
+      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
+      flag += (pnorm - 1);
 
       
 
@@ -374,6 +379,10 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       dp3dx = (v - vl) / hx;
       dp3dy = (v - vb) / hy;
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+
+      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
+      flag += (pnorm - 1);
+
       v3 = v;
 
       f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
@@ -390,7 +399,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   PetscCall(VecRestoreArrayRead(X, &x));
 
   area = p5 * hx * hy;
-  *f   = area * (fquad + fskyrm + fpot);
+  *f   = area * (fquad + fskyrm + fpot + flag);
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -467,49 +476,49 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       /* phi_1 */
       if (i != -1 && j != -1) {
         ind = k1;
-        val = -dp1dx / hx - dp1dy / hy - ddeddp1dx - ddeddp1dy - dedp1 ;
+        val = -dp1dx / hx - dp1dy / hy - ddeddp1dx - ddeddp1dy - (dedp1 + 2 * v1); /* last term is lagrange multiplier term */
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k1 + 1;
-        val = dp1dx / hx + ddeddp1dx - dedp1 ;
+        val = dp1dx / hx + ddeddp1dx - (dedp1 + 2 * v1);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k1 + nx;
-        val = dp1dy / hy + ddeddp1dy - dedp1 ;
+        val = dp1dy / hy + ddeddp1dy - (dedp1 + 2 + v1);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       /* phi_2 */
       if (i != -1 && j != -1) {
         ind = k2;
-        val = -dp2dx / hx - dp2dy / hy - ddeddp2dx - ddeddp2dy - dedp2;
+        val = -dp2dx / hx - dp2dy / hy - ddeddp2dx - ddeddp2dy - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k2 + 1;
-        val = dp2dx / hx + ddeddp2dx - dedp2;
+        val = dp2dx / hx + ddeddp2dx - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k2 + nx;
-        val = dp2dy / hy + ddeddp2dy - dedp2;
+        val = dp2dy / hy + ddeddp2dy - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       /* phi_3 */
       if (i != -1 && j != -1) {
         ind = k3;
-        val = -dp3dx / hx - dp3dy / hy - ddeddp3dx - ddeddp3dy - dedp3 - user->param_c0 * v3;
+        val = -dp3dx / hx - dp3dy / hy - ddeddp3dx - ddeddp3dy - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k3 + 1;
-        val = dp3dx / hx + ddeddp3dx - dedp3 - user->param_c0 * v3;
+        val = dp3dx / hx + ddeddp3dx - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k3 + nx;
-        val = dp3dy / hy + ddeddp3dy - dedp3 - user->param_c0 * v3;
+        val = dp3dy / hy + ddeddp3dy - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
     }
@@ -571,17 +580,17 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       /* phi_1 */
       if (i != nx && j != 0) {
         ind = k1 - nx;
-        val = -dp1dy / hy - ddeddp1dy - dedp1;
+        val = -dp1dy / hy - ddeddp1dy - (dedp1 + 2 * v1);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k1 - 1;
-        val = -dp1dx / hx - ddeddp1dx - dedp1;
+        val = -dp1dx / hx - ddeddp1dx - (dedp1 + 2 * v1);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k1;
-        val = dp1dx / hx + dp1dy / hy + ddeddp1dx + ddeddp1dx - dedp1;
+        val = dp1dx / hx + dp1dy / hy + ddeddp1dx + ddeddp1dx - (dedp1 + 2 * v1);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
 
@@ -589,17 +598,17 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
       if (i != nx && j != 0) {
         ind = k2 - nx;
-        val = -dp2dy / hy - ddeddp2dy - dedp2;
+        val = -dp2dy / hy - ddeddp2dy - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k2 - 1;
-        val = -dp2dx / hx - ddeddp2dx - dedp2;
+        val = -dp2dx / hx - ddeddp2dx - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k2;
-        val = dp2dx / hx + dp2dy / hy + ddeddp2dx + ddeddp2dx - dedp2;
+        val = dp2dx / hx + dp2dy / hy + ddeddp2dx + ddeddp2dx - (dedp2 + 2 * v2);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
 
@@ -607,17 +616,17 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
       if (i != nx && j != 0) {
         ind = k3 - nx;
-        val = -dp3dy / hy - ddeddp3dy - dedp3 - user->param_c0 * v3;
+        val = -dp3dy / hy - ddeddp3dy - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k3 - 1;
-        val = -dp3dx / hx - ddeddp3dx - dedp3 - user->param_c0 * v3;
+        val = -dp3dx / hx - ddeddp3dx - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k3;
-        val = dp3dx / hx + dp3dy / hy + ddeddp3dx + ddeddp3dx - dedp3 - user->param_c0 * v3;
+        val = dp3dx / hx + dp3dy / hy + ddeddp3dx + ddeddp3dx - (dedp3 + user->param_c0 * v3 + 2 * v3);
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
     }
@@ -704,6 +713,9 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v3 = v;
 
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+      PetscReal pnorm;
+      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
+      fquad += (pnorm - 1);
       // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
 
       f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
@@ -711,7 +723,7 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       fskyrm = f12 * f12;
       //f12 = 0.0;
 
-      fpot = PotentialTerm(user, x[k3]);
+      fpot = PotentialTerm(user, v3);
       fquad  = user->param_c2 * fquad / 2.0;
       fskyrm = p5 * user->param_c4 * fskyrm;
 
