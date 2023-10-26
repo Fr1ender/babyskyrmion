@@ -38,7 +38,7 @@ set nosurface              # do not show surface plot
 #set view 0,0               # view from the due north
 set contour
 set view 0,0,1,1
-splot "densityplotcancelN=51.dat" using 1:2:3 w l title "neko"
+splot "densityplotN=201.dat" using 1:2:3 w l title "neko"
 #plot "data.dat" pt 7 lc 8 title "データ"  #実験データのプロットとか
 
 pause 5

@@ -16,7 +16,7 @@ def main():
 
   phi1 = np.zeros((dim,dim))
   #output = np.zeros((dim,dim,dim))
-  filename = "densityplotcancelN="
+  filename = "densityplotN="
 
   for j in range(dim):
     for i in range (dim):

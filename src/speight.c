@@ -1,6 +1,6 @@
 /*
 My object is minimizing static energy functional for baby Skyrm model to get the field \phi.
-\phi is a SO(2) triplet scaler field.    Last update '23 10 18
+\phi is a SO(2) triplet scaler field.    Last update '23 10 21
 
 Baby skyrm model is 
 \mathcal{L} = 1/2 c_2\partial_\mu\phi^{a}\partial^{\mu}\phi_a \frac{1}{4}F_{\mu}{\nu}F^{\mu}{\nu} -c_0\frac{1}{2}U(\phi)^2
