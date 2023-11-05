@@ -1,5 +1,8 @@
 energydensity.dat
 speight
 taoresults.dat
+initialvec.dat
 data/
 data_old/
+test/
+.cache/clangd/index/

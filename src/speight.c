@@ -737,7 +737,7 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, p5 = 0.5;
   PetscReal          zero = 0.0, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0,flag = 0.0;
-  PetscReal          v,v1,v2,v3,val;//, cdiv3 = user->param / three;
+  PetscReal          v,v1,v2,v3,val,charge = 0.0;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
   PetscInt           dim,ind;
@@ -815,9 +815,11 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       }
 
       fquad = zero;
+      charge += f12;
     }
   }
   /* assemble vector */
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge : %2.3e\n", (double)charge));
   PetscCall(VecRestoreArrayRead(X, &x));
   PetscCall(VecAssemblyBegin(E));
   PetscCall(VecAssemblyEnd(E));

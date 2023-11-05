@@ -22,7 +22,7 @@ def main():
     for i in range (dim):
       phi1[i][j] = data[i + j*dim]
 
-  with open (filename + str(dim) + ".dat",'w') as out:
+  with open (r"../data/" + filename + str(dim) + ".dat",'w') as out:
    for j in range(dim):
     for i in range(dim):
       print( -region + i*hx,-region + j*hy, phi1[i][j], sep=" ", file=out)
