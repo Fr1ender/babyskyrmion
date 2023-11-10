@@ -26,6 +26,7 @@ command line argument
 -tao_max_it 5000
 
 */
+#include "mpi.h"
 #include "petsctao.h"
 #include "petscviewer.h"
 #include <omp.h>
@@ -90,6 +91,7 @@ int main(int argc, char **argv){
   user.param_lag = 1.0;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-my", &my, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-mx", &mx, &flg));
+  PetscCall(PetscOptionsGetReal(NULL, NULL, "-h", &user.hx, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc0", &user.param_c0, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc2", &user.param_c2, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc4", &user.param_c4, &flg));
@@ -103,6 +105,7 @@ int main(int argc, char **argv){
   user.ndim = mx * my;
   user.mx   = mx;
   user.my   = my;
+  user.hy = user.hx;
 
   user.region = (mx - 1.0) / 2.0 * user.hx;
 
@@ -155,6 +158,12 @@ int main(int argc, char **argv){
   PetscCall(PetscViewerPopFormat(Eout));
   PetscCall(PetscViewerDestroy(&Eout));
 
+  PetscViewer resultfield;
+  PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "resultfield.dat", &resultfield));
+  PetscCall(PetscViewerPushFormat(resultfield, PETSC_VIEWER_ASCII_COMMON));
+  PetscCall(VecView(x, resultfield));
+  PetscCall(PetscViewerPopFormat(resultfield));
+  PetscCall(PetscViewerDestroy(&resultfield));
   /*
   char neko[10] = "taoresults",inu[5] = ".dat",*file;
   file = strcat(neko, inu);
@@ -206,9 +215,9 @@ PetscReal SkyrmTerm(PetscReal entry1, PetscReal entry2l, PetscReal entry2r, Pets
 */
 PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
 {
-  PetscReal hx = user->hx, hy = user->hy, bound = user->region;
+  PetscReal hx = user->hx, hy = user->hy, bound = user->region,l = user->lambda;
   PetscReal val1,val2,val3, x, y;
-  PetscInt  i, j, k, n, m, nx = user->mx, ny = user->my, l = user->lambda;
+  PetscInt  i, j, k, n, m, nx = user->mx, ny = user->my;
   PetscViewer iniout;
   PetscRandom r;
   Vec rand;
@@ -273,7 +282,7 @@ PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
   PetscCall(PetscViewerDestroy(&iniout));
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"X[20] : %3.5e\n", (double)val1));
 
-  //PetscCall(VecAXPY(X,1.0,rand));
+  PetscCall(VecAXPY(X,1.0,rand));
 
   PetscCall(VecDestroy(&rand));
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -281,6 +290,27 @@ PetscErrorCode FormInitialGuess(AppCtx *user, Vec X)
 
 PetscReal FuncComm(PetscReal Lambda, PetscReal x, PetscReal y){
   return (1.0 / (Lambda * Lambda * (x * x + y * y) + 1.0)); 
+}
+
+PetscReal boundary(PetscInt i, PetscInt j, PetscInt fieldNUM,AppCtx *user) {
+  PetscReal x,y,l,bound,hx,hy;
+  hx = user->hx;
+  hy = user->hy;
+  bound = user->region;
+  l = user->lambda;
+  x = -1 * bound + i * hx;
+  y = -1 * bound + j * hy;
+
+  if (fieldNUM == 1) {
+    return FuncComm(l, x, y) * (l * l * (x * x + y * y) - 1.0);
+  } else if (fieldNUM == 2) {
+    return FuncComm(l, x, y) * 2.0 * l * x;
+  } else if (fieldNUM == 3) {
+    return FuncComm(l, x, y) * -2.0 * l * y;
+  } else {
+    PetscPrintf(MPI_COMM_WORLD, "ERROR boundary");
+    return 0;
+  }
 }
 
 /* ------------------------------------------------------------------- */
@@ -314,11 +344,11 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, area, p5 = 0.5;
-  PetscReal          zero = 0.0, vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
+  PetscReal          vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
   PetscReal          v,v1,v2,v3;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3,dim;
-  PetscReal pnorm, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
+  PetscReal          pnorm, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
   const PetscReal PI = 3.1415926535;
 
   PetscFunctionBeginUser;
@@ -342,9 +372,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
-      v  = 1.0;
-      vr = 1.0;
-      vt = 1.0;
+      v   = boundary(i, j, 1, user);
+      vr  = boundary(i, j, 1, user);
+      vt  = boundary(i, j, 1, user);
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -355,9 +385,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       fquad += dp1dx * dp1dx + dp1dy * dp1dy;
 
       /* ||\nabla /phi_2||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v   = boundary(i, j, 2, user);
+      vr  = boundary(i, j, 2, user);
+      vt  = boundary(i, j, 2, user);
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -369,9 +399,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
 
       /* ||\nabla /phi_3||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v   = boundary(i, j, 3, user);
+      vr  = boundary(i, j, 3, user);
+      vt  = boundary(i, j, 3, user);
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
@@ -406,9 +436,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
-      vb = 1.0;
-      vl = 1.0;
-      v  = 1.0;
+      vb = boundary(i, j, 1, user);
+      vl = boundary(i, j, 1, user);
+      v  = boundary(i, j, 1, user);
       if (i < nx && j > 0) vb = x[k1 - nx];
       if (i > 0 && j < ny) vl = x[k1 - 1];
       if (i < nx && j < ny) v = x[k1];
@@ -418,9 +448,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      vb = zero;
-      vl = zero;
-      v  = zero;
+      vb = boundary(i, j,2, user);
+      vl = boundary(i, j,2, user);
+      v  = boundary(i, j, 2, user);
       if (i < nx && j > 0) vb = x[k2 - nx];
       if (i > 0 && j < ny) vl = x[k2 - 1];
       if (i < nx && j < ny) v = x[k2];
@@ -430,9 +460,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v2 = v;
 
       /* ||\nabla /phi_3||^2 */
-      vb = zero;
-      vl = zero;
-      v  = zero;
+      vb = boundary(i, j, 3, user);
+      vl = boundary(i, j, 3, user);
+      v  = boundary(i, j, 3, user);
       if (i < nx && j > 0) vb = x[k3 - nx];
       if (i > 0 && j < ny) vl = x[k3 - 1];
       if (i < nx && j < ny) v = x[k3];
@@ -498,9 +528,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
-      v  = 1.0;
-      vr = 1.0;
-      vt = 1.0;
+      v   = boundary(i, j, 1, user);
+      vr  = boundary(i, j, 1, user);
+      vt  = boundary(i, j, 1, user);
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -509,9 +539,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v   = boundary(i, j, 2, user);
+      vr  = boundary(i, j,2, user);
+      vt  = boundary(i, j,2, user);
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -520,9 +550,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v2 = v;
 
       /* ||\nabla /phi_3||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v   = boundary(i, j, 3, user);
+      vr  = boundary(i, j,3, user);
+      vt  = boundary(i, j,3, user);
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
@@ -606,9 +636,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
-      vb = 1.0;
-      vl = 1.0;
-      v  = 1.0;
+      vb = boundary(i, j,1, user);
+      vl = boundary(i, j,1, user);
+      v  = boundary(i, j,1, user);
       if (i < nx && j > 0) vb = x[k1 - nx];
       if (i > 0 && j < ny) vl = x[k1 - 1];
       if (i < nx && j < ny) v = x[k1];
@@ -617,9 +647,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      vb = zero;
-      vl = zero;
-      v  = zero;
+      vb = boundary(i, j, 2, user);
+      vl = boundary(i, j, 2, user);
+      v  = boundary(i, j, 2, user);
       if (i < nx && j > 0) vb = x[k2 - nx];
       if (i > 0 && j < ny) vl = x[k2 - 1];
       if (i < nx && j < ny) v = x[k2];
@@ -629,9 +659,9 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
 
       /* ||\nabla /phi_3||^2 */
-      vb = zero;
-      vl = zero;
-      v  = zero;
+      vb = boundary(i, j, 3, user);
+      vl = boundary(i, j, 3, user);
+      v  = boundary(i, j, 3, user);
       if (i < nx && j > 0) vb = x[k3 - nx];
       if (i > 0 && j < ny) vl = x[k3 - 1];
       if (i < nx && j < ny) v = x[k3];
@@ -717,6 +747,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
   area = p5 * hx * hy;
   PetscCall(VecScale(G, area));
+  //PetscCall(VecScale(G, 0.0001));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -736,8 +767,8 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, p5 = 0.5;
-  PetscReal          zero = 0.0, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0,flag = 0.0;
-  PetscReal          v,v1,v2,v3,val,charge = 0.0;//, cdiv3 = user->param / three;
+  PetscReal          vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0,flag = 0.0;
+  PetscReal          v,v1,v2,v3,val,pnorm,charge = 0.0,area, PI = 3.1415926535;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
   PetscInt           dim,ind;
@@ -757,9 +788,9 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
-      v  = 1.0;
-      vr = 1.0;
-      vt = 1.0;
+      v  = boundary(i, j, 1, user);
+      vr = boundary(i, j, 1, user);
+      vt = boundary(i, j, 1, user);
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -769,9 +800,9 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v  = boundary(i, j, 2, user);
+      vr = boundary(i, j, 2, user);
+      vt = boundary(i, j, 2, user);
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -781,9 +812,9 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v2 = v;
 
       /* ||\nabla /phi_3||^2 */
-      v  = zero;
-      vr = zero;
-      vt = zero;
+      v  = boundary(i, j, 3, user);
+      vr = boundary(i, j, 3, user);
+      vt = boundary(i, j, 3, user);
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
@@ -792,7 +823,6 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v3 = v;
 
       fquad += dp3dx * dp3dx + dp3dy * dp3dy;
-      PetscReal pnorm;
       pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
       flag = (pnorm - 1) * (pnorm - 1);
       // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
@@ -814,12 +844,24 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
         PetscCall(VecSetValues(E, 1, &ind, &val, INSERT_VALUES));
       }
 
-      fquad = zero;
       charge += f12;
     }
   }
-  /* assemble vector */
+  /* charge calculation */
+  area = p5 * hx * hy * 2;
+  charge = area * charge / ( 4 * PI );
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge : %2.3e\n", (double)charge));
+  /*
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad : %2.3e\n", (double)fquad));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp3dx : %2.3e\n", (double)dp3dx));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp3dy : %2.3e\n", (double)dp3dy));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp1dx : %2.3e\n", (double)dp1dx));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp1dy : %2.3e\n", (double)dp1dy));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp2dx : %2.3e\n", (double)dp2dx));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"dp2dy : %2.3e\n", (double)dp2dy));
+  */
+
+  /* assemble vector */
   PetscCall(VecRestoreArrayRead(X, &x));
   PetscCall(VecAssemblyBegin(E));
   PetscCall(VecAssemblyEnd(E));
