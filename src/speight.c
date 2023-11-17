@@ -28,6 +28,7 @@ command line argument
 */
 #include "mpi.h"
 #include "petsctao.h"
+#include "petscvec.h"
 #include "petscviewer.h"
 #include <omp.h>
 
@@ -38,7 +39,8 @@ typedef struct {
   PetscReal lambda;     /* parameter for initial configuration */
   PetscReal region;     /* Region size parameter */
   PetscInt  mx, my;     /* discretization in x- and y-directions */
-  PetscInt  ndim;       /* problem dimension */
+  PetscInt  ndim,itrmax,itr;       /* problem dimension and itration number*/
+  Vec       chargeitr,derrick;       /* charge monitor & derrick monitor */
   //Vec       s, y, xvec; /* work space for computing Hessian (?)*/
   PetscReal hx, hy;     /* mesh spacing in x- and y-directions */
   PetscReal param_lag;  /* lagrange multiplier */
@@ -89,8 +91,11 @@ int main(int argc, char **argv){
   user.hx   = 0.1;
   user.hy   = 0.1;
   user.param_lag = 1.0;
+  user.itr      = 0;
+  user.itrmax   = 100;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-my", &my, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-mx", &mx, &flg));
+  PetscCall(PetscOptionsGetInt(NULL, NULL, "-itrmax", &user.itrmax, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-h", &user.hx, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc0", &user.param_c0, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-parc2", &user.param_c2, &flg));
@@ -119,6 +124,8 @@ int main(int argc, char **argv){
   /* Allocate vectors */
   PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim*3, &x)); /* *3 for three fields */
   PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim, &E)); 
+  PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.itrmax, &user.chargeitr));
+  PetscCall(VecDuplicate(user.chargeitr, &user.derrick));
   //PetscCall(VecDuplicate(x, &user.s));
   //PetscCall(VecDuplicate(x, &user.y));
 
@@ -158,12 +165,24 @@ int main(int argc, char **argv){
   PetscCall(PetscViewerPopFormat(Eout));
   PetscCall(PetscViewerDestroy(&Eout));
 
-  PetscViewer resultfield;
+  PetscViewer resultfield,derrickview,chargeview;
   PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "resultfield.dat", &resultfield));
   PetscCall(PetscViewerPushFormat(resultfield, PETSC_VIEWER_ASCII_COMMON));
   PetscCall(VecView(x, resultfield));
   PetscCall(PetscViewerPopFormat(resultfield));
   PetscCall(PetscViewerDestroy(&resultfield));
+
+  PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "chargeitr.dat", &chargeview));
+  PetscCall(PetscViewerPushFormat(chargeview, PETSC_VIEWER_ASCII_COMMON));
+  PetscCall(VecView(user.chargeitr, chargeview));
+  PetscCall(PetscViewerPopFormat(chargeview));
+  PetscCall(PetscViewerDestroy(&chargeview));
+
+  PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "derrickitr.dat", &derrickview));
+  PetscCall(PetscViewerPushFormat(derrickview, PETSC_VIEWER_ASCII_COMMON));
+  PetscCall(VecView(user.derrick, derrickview));
+  PetscCall(PetscViewerPopFormat(derrickview));
+  PetscCall(PetscViewerDestroy(&derrickview));
   /*
   char neko[10] = "taoresults",inu[5] = ".dat",*file;
   file = strcat(neko, inu);
@@ -345,7 +364,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, area, p5 = 0.5;
   PetscReal          vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
-  PetscReal          v,v1,v2,v3;//, cdiv3 = user->param / three;
+  PetscReal          v,v1,v2,v3,derrickCHK;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3,dim;
   PetscReal          pnorm, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
@@ -496,10 +515,21 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   area = p5 * hx * hy;
   *f   = area * (fquad + fskyrm + fpot + flag);
   chargelc = area * chargelc / ( 4.0 * PI );
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot : %2.3e\n", (double)fpot));
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag : %2.3e\n", (double)flag));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge : %2.3e\n", (double)chargelc));
+  derrickCHK = fskyrm - fpot;
+  if(derrickCHK < 0) derrickCHK = - derrickCHK;
+  derrickCHK = derrickCHK * area;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot           : %2.3e\n", (double)fpot * (double)area));
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme        : %2.3e\n", (double)fskyrm * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme - fpot : %2.3e\n", (double)derrickCHK));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %2.3e\n", (double)chargelc));
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad : %2.3e\n", (double)fquad));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
+
+  PetscCall(VecSetValues(user->chargeitr, 1, &user->itr, &chargelc, ADD_VALUES));
+  PetscCall(VecSetValues(user->derrick, 1, &user->itr, &derrickCHK, ADD_VALUES));
+  user->itr += 1;
 
   PetscFunctionReturn(PETSC_SUCCESS);
   }
