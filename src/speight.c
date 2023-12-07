@@ -24,6 +24,7 @@ command line argument
 -tao_type lmvm
 -tao_max_funcs 200000
 -tao_max_it 5000
+-start_in_debugger
 
 */
 #include "mpi.h"
@@ -41,9 +42,10 @@ typedef struct {
   PetscInt  mx, my;     /* discretization in x- and y-directions */
   PetscInt  ndim,itrmax,itr;       /* problem dimension and itration number*/
   Vec       chargeitr,derrick;       /* charge monitor & derrick monitor */
+  Vec       gradient;              /* monitor gradient vec */
   //Vec       s, y, xvec; /* work space for computing Hessian (?)*/
   PetscReal hx, hy;     /* mesh spacing in x- and y-directions */
-  PetscReal param_lag;  /* lagrange multiplier */
+  PetscReal param_lag,normglobal;  /* lagrange multiplier */
 } AppCtx;
 
 /* User-defined routines */
@@ -93,6 +95,7 @@ int main(int argc, char **argv){
   user.param_lag = 1.0;
   user.itr      = 0;
   user.itrmax   = 100;
+  user.normglobal = 0.0;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-my", &my, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-mx", &mx, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-itrmax", &user.itrmax, &flg));
@@ -126,7 +129,7 @@ int main(int argc, char **argv){
   PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.ndim, &E)); 
   PetscCall(VecCreateSeq(PETSC_COMM_SELF, user.itrmax, &user.chargeitr));
   PetscCall(VecDuplicate(user.chargeitr, &user.derrick));
-  //PetscCall(VecDuplicate(x, &user.s));
+  PetscCall(VecDuplicate(x, &user.gradient));
   //PetscCall(VecDuplicate(x, &user.y));
 
   /* Create TAO solver and set desired solution method */
@@ -165,7 +168,8 @@ int main(int argc, char **argv){
   PetscCall(PetscViewerPopFormat(Eout));
   PetscCall(PetscViewerDestroy(&Eout));
 
-  PetscViewer resultfield,derrickview,chargeview;
+  PetscViewer resultfield,derrickview,chargeview,gradview;
+
   PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "resultfield.dat", &resultfield));
   PetscCall(PetscViewerPushFormat(resultfield, PETSC_VIEWER_ASCII_COMMON));
   PetscCall(VecView(x, resultfield));
@@ -183,6 +187,12 @@ int main(int argc, char **argv){
   PetscCall(VecView(user.derrick, derrickview));
   PetscCall(PetscViewerPopFormat(derrickview));
   PetscCall(PetscViewerDestroy(&derrickview));
+
+  PetscCall(PetscViewerASCIIOpen(PETSC_COMM_SELF, "gradient.dat", &gradview));
+  PetscCall(PetscViewerPushFormat(gradview, PETSC_VIEWER_ASCII_COMMON));
+  PetscCall(VecView(user.gradient, gradview));
+  PetscCall(PetscViewerPopFormat(gradview));
+  PetscCall(PetscViewerDestroy(&gradview));
   /*
   char neko[10] = "taoresults",inu[5] = ".dat",*file;
   file = strcat(neko, inu);
@@ -367,7 +377,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   PetscReal          v,v1,v2,v3,derrickCHK;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3,dim;
-  PetscReal          pnorm, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
+  PetscReal          pnorm = 0.0, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
   const PetscReal PI = 3.1415926535;
 
   PetscFunctionBeginUser;
@@ -391,9 +401,12 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
+
       v   = boundary(i, j, 1, user);
       vr  = boundary(i, j, 1, user);
       vt  = boundary(i, j, 1, user);
+
+
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -493,7 +506,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
       flag += (pnorm - 1) * (pnorm - 1);
       //chargelc += v1 * (dp2dx * dp3dy - dp3dx * dp2dy) + v2 * (dp3dx * dp1dy - dp1dx * dp3dy) + v3 * (dp1dx * dp2dy - dp2dx * dp1dy);
-
+      if(j % 10 == 0 && i % 10 == 0){
+        PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
+      }
 
       f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
       f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
@@ -511,7 +526,6 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   flag = lagmul * flag;
 
   PetscCall(VecRestoreArrayRead(X, &x));
-
   area = p5 * hx * hy;
   *f   = area * (fquad + fskyrm + fpot + flag);
   chargelc = area * chargelc / ( 4.0 * PI );
@@ -519,17 +533,24 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   if(derrickCHK < 0) derrickCHK = - derrickCHK;
   derrickCHK = derrickCHK * area;
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot           : %2.3e\n", (double)fpot * (double)area));
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme        : %2.3e\n", (double)fskyrm * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot(E0)           : %2.3e\n", (double)fpot * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme(E4)        : %2.3e\n", (double)fskyrm * (double)area));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme - fpot : %2.3e\n", (double)derrickCHK));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %2.3e\n", (double)chargelc));
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad : %2.3e\n", (double)fquad));
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
 
-  PetscCall(VecSetValues(user->chargeitr, 1, &user->itr, &chargelc, ADD_VALUES));
-  PetscCall(VecSetValues(user->derrick, 1, &user->itr, &derrickCHK, ADD_VALUES));
+  //PetscCall(VecSetValues(user->chargeitr, 1, &user->itr, &chargelc, ADD_VALUES));
+  //PetscCall(VecSetValues(user->derrick, 1, &user->itr, &derrickCHK, ADD_VALUES));
   user->itr += 1;
+  user->normglobal = 1.0 / sqrt(pnorm);
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"TEST         : %2.3e\n", (double)tao->gatol));
+  //PetscCall(VecScale(X,user->normglobal));
+  //f[1] = 2.1;
+  f[1] = nx; // 0 or nx
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"f[0]         : %2.3e\n", (double)f[1]));
 
   PetscFunctionReturn(PETSC_SUCCESS);
   }
@@ -778,6 +799,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
   area = p5 * hx * hy;
   PetscCall(VecScale(G, area));
   //PetscCall(VecScale(G, 0.0001));
+  PetscCall(VecCopy(G,user->gradient));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

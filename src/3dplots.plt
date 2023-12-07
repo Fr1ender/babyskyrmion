@@ -33,22 +33,25 @@ set ylabel 'y axis'             # y-axis
 #set pm3d at b              # draw with colored contour 
 #set view 0,0               # view from the due north
 
-set contour
-set cntrparam levels 15     #等高線の本数
+
+set contour base
+set cntrparam levels 5     #等高線の本数
 #set nosurface              # do not show surface plot
 #set view 0,0,1,1
 splot "densityplotN=101.dat" using 1:2:3 w l title "Energy density"
-pause 5
+pause 10
 
 #output
-set terminal pngcairo
-set encoding utf8
-set output "initialex.png"
-replot
+#set terminal pngcairo
+#set encoding utf8
+#set output "initialex.png"
+#replot
 
 # contourのみ
 set terminal x11
+set size square            # same side lengths for x and y
 set nosurface              # do not show surface plot
+set size square
 set view 0,0,1,1
 replot
 #画像出力用
@@ -57,4 +60,4 @@ replot
 #set output "initialexcontour.png"
 #replot
 
-pause 5
+pause 10
