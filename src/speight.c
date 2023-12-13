@@ -28,6 +28,7 @@ command line argument
 
 */
 #include "mpi.h"
+#include "petscsystypes.h"
 #include "petsctao.h"
 #include "petscvec.h"
 #include "petscviewer.h"
@@ -46,6 +47,7 @@ typedef struct {
   //Vec       s, y, xvec; /* work space for computing Hessian (?)*/
   PetscReal hx, hy;     /* mesh spacing in x- and y-directions */
   PetscReal param_lag,normglobal;  /* lagrange multiplier */
+  PetscBool periodic;
 } AppCtx;
 
 /* User-defined routines */
@@ -96,6 +98,7 @@ int main(int argc, char **argv){
   user.itr      = 0;
   user.itrmax   = 100;
   user.normglobal = 0.0;
+  user.periodic = PETSC_FALSE;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-my", &my, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-mx", &mx, &flg));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-itrmax", &user.itrmax, &flg));
@@ -106,6 +109,7 @@ int main(int argc, char **argv){
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-lambda", &user.lambda, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-region", &user.region, &flg));
   PetscCall(PetscOptionsGetReal(NULL, NULL, "-paramlag", &user.param_lag, &flg));
+  PetscCall(PetscOptionsGetBool(NULL,NULL, "-periodic",&user.periodic, &flg));
   //PetscCall(PetscOptionsGetBool(NULL, NULL, "-test_lmvm", &test_lmvm, &flg));
 
   PetscCall(PetscPrintf(PETSC_COMM_SELF, "\n---- Minimizing the energy functional -----\n"));
@@ -400,44 +404,54 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       k1  = nx * j + i;
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
-      /* ||\nabla /phi_1||^2 */
 
       v   = boundary(i, j, 1, user);
       vr  = boundary(i, j, 1, user);
       vt  = boundary(i, j, 1, user);
-
-      /* boundary new */
+      /* ||\nabla /phi_1||^2 */
+      /* old boundary (fixed)*/
       /*
-      if( i != -1 && j == -1 ){
+      v   = boundary(i, j, 1, user);
+      vr  = boundary(i, j, 1, user);
+      vt  = boundary(i, j, 1, user);
+      */
+
+      /* boundary new (periodic)*/
+
+      v   = boundary(i, j, 1, user);
+      vr  = boundary(i, j, 1, user);
+      vt  = boundary(i, j, 1, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
         v = x[k1 + nx * nx];
       }
-      else if( i == -1 && j == -1){
+      else if(i == -1 && j == -1){
         v = x[nx * nx - 1]; //例外
       }
-      else if( i == -1 && j != -1){
+      else if(i == -1 && j != -1){
         v = x[k1 + nx];
       }
 
-      if( i != nx - 1 && j == -1){
+      if(i != nx - 1 && j == -1){
         vr = x[k1 + nx * nx + 1];
       }
-      else if( i == nx - 1 && j == -1){
+      else if(i == nx - 1 && j == -1){
         vr = x[nx * nx - nx]; //ここが例外
       }
-      else if( i == nx - 1 && j != -1){
+      else if(i == nx - 1 && j != -1){
         vr = x[k1 + 1 - nx];
       }
 
-      if( i == -1 && j != ny - 1){
+      if(i == -1 && j != ny - 1){
         vt = x[k1 + nx * 2]; // ?
       }
-      else if( i == -1 && j == ny - 1){
+      else if(i == -1 && j == ny - 1){
         vt = x[nx - 1];
       }
-      else if( i != -1 && j == ny - 1){
+      else if(i != -1 && j == ny - 1){
         vt = x[k1 - nx * (nx - 1)];
       }
-      */
+      }
 
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
@@ -452,6 +466,37 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v   = boundary(i, j, 2, user);
       vr  = boundary(i, j, 2, user);
       vt  = boundary(i, j, 2, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k2 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k2 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k2 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k2 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k2 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k2 - nx * (nx - 1)];
+      }
+      }
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -463,9 +508,41 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
 
       /* ||\nabla /phi_3||^2 */
-      v   = boundary(i, j, 3, user);
-      vr  = boundary(i, j, 3, user);
-      vt  = boundary(i, j, 3, user);
+      v   = boundary(i, j, 2, user);
+      vr  = boundary(i, j, 2, user);
+      vt  = boundary(i, j, 2, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k3 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim*2]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k3 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k3 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim*2]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k3 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k3 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim*2];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k3 - nx * (nx - 1)];
+      }
+      }
+
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
@@ -500,9 +577,51 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       k2  = nx * j + i + dim;
       k3  = nx * j + i + dim * 2;
       /* ||\nabla /phi_1||^2 */
+
+      /*old boundary*/
+      /*
       vb = boundary(i, j, 1, user);
       vl = boundary(i, j, 1, user);
       v  = boundary(i, j, 1, user);
+      */
+
+      v   = boundary(i, j, 1, user);
+      vl  = boundary(i, j, 1, user);
+      vb  = boundary(i, j, 1, user);
+
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k1 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1)];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k1 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k1 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k1 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k1 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k1 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[0];
+      }
+      }
+
       if (i < nx && j > 0) vb = x[k1 - nx];
       if (i > 0 && j < ny) vl = x[k1 - 1];
       if (i < nx && j < ny) v = x[k1];
@@ -512,9 +631,42 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      vb = boundary(i, j,2, user);
-      vl = boundary(i, j,2, user);
-      v  = boundary(i, j, 2, user);
+      v   = boundary(i, j, 1, user);
+      vl  = boundary(i, j, 1, user);
+      vb  = boundary(i, j, 1, user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k2 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1) + dim];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k2 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k2 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1 + dim];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k2 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k2 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k2 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[dim];
+      }
+      }
+
       if (i < nx && j > 0) vb = x[k2 - nx];
       if (i > 0 && j < ny) vl = x[k2 - 1];
       if (i < nx && j < ny) v = x[k2];
@@ -524,9 +676,42 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v2 = v;
 
       /* ||\nabla /phi_3||^2 */
-      vb = boundary(i, j, 3, user);
-      vl = boundary(i, j, 3, user);
-      v  = boundary(i, j, 3, user);
+      v   = boundary(i, j, 1, user);
+      vl  = boundary(i, j, 1, user);
+      vb  = boundary(i, j, 1, user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k3 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1) + dim*2];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k3 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k3 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1 + dim*2];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k3 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k3 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k3 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[dim*2];
+      }
+      }
+
       if (i < nx && j > 0) vb = x[k3 - nx];
       if (i > 0 && j < ny) vl = x[k3 - 1];
       if (i < nx && j < ny) v = x[k3];
@@ -569,8 +754,8 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme(E4)        : %2.3e\n", (double)fskyrm * (double)area));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme - fpot : %2.3e\n", (double)derrickCHK));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad          : %2.3e\n", (double)fquad));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %2.3e\n", (double)chargelc));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad : %2.3e\n", (double)fquad));
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
 
@@ -581,7 +766,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"TEST         : %2.3e\n", (double)tao->gatol));
   //PetscCall(VecScale(X,user->normglobal));
   //f[1] = 2.1;
-  f[1] = 0; // 0 or nx
+  f[1] = nx; // 0 or nx
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"f[0]         : %2.3e\n", (double)f[1]));
 
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -614,6 +799,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v   = boundary(i, j, 1, user);
       vr  = boundary(i, j, 1, user);
       vt  = boundary(i, j, 1, user);
+      /* boundary new (periodic)*/
+      if(user->periodic){     
+      if(i != -1 && j == -1){
+        v = x[k1 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k1 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k1 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k1 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k1 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k1 - nx * (nx - 1)];
+      }
+      }
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -625,6 +842,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v   = boundary(i, j, 2, user);
       vr  = boundary(i, j,2, user);
       vt  = boundary(i, j,2, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k2 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k2 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k2 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k2 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k2 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k2 - nx * (nx - 1)];
+      }
+      }
+
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -636,6 +885,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v   = boundary(i, j, 3, user);
       vr  = boundary(i, j,3, user);
       vt  = boundary(i, j,3, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k3 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim*2]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k3 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k3 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim*2]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k3 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k3 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim*2];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k3 - nx * (nx - 1)];
+      }
+      }
+
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
@@ -722,6 +1003,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       vb = boundary(i, j,1, user);
       vl = boundary(i, j,1, user);
       v  = boundary(i, j,1, user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k1 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1)];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k1 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k1 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k1 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k1 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k1 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[0];
+      }
+      }
       if (i < nx && j > 0) vb = x[k1 - nx];
       if (i > 0 && j < ny) vl = x[k1 - 1];
       if (i < nx && j < ny) v = x[k1];
@@ -733,6 +1046,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       vb = boundary(i, j, 2, user);
       vl = boundary(i, j, 2, user);
       v  = boundary(i, j, 2, user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k2 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1) + dim];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k2 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k2 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1 + dim];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k2 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k2 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k2 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[dim];
+      }
+      }
       if (i < nx && j > 0) vb = x[k2 - nx];
       if (i > 0 && j < ny) vl = x[k2 - 1];
       if (i < nx && j < ny) v = x[k2];
@@ -745,6 +1090,38 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       vb = boundary(i, j, 3, user);
       vl = boundary(i, j, 3, user);
       v  = boundary(i, j, 3, user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k3 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1) + dim*2];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k3 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k3 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1 + dim*2];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k3 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k3 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k3 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[dim*2];
+      }
+      }
       if (i < nx && j > 0) vb = x[k3 - nx];
       if (i > 0 && j < ny) vl = x[k3 - 1];
       if (i < nx && j < ny) v = x[k3];
@@ -875,6 +1252,38 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v  = boundary(i, j, 1, user);
       vr = boundary(i, j, 1, user);
       vt = boundary(i, j, 1, user);
+      /* boundary new (periodic)*/
+      if(user->periodic){ 
+      if(i != -1 && j == -1){
+        v = x[k1 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k1 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k1 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k1 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k1 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k1 - nx * (nx - 1)];
+      }
+      }
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
@@ -887,6 +1296,38 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v  = boundary(i, j, 2, user);
       vr = boundary(i, j, 2, user);
       vt = boundary(i, j, 2, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k2 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k2 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k2 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k2 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k2 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k2 - nx * (nx - 1)];
+      }
+      }
+
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
       if (i > -1 && j < ny - 1) vt = x[k2 + nx];
@@ -899,6 +1340,38 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       v  = boundary(i, j, 3, user);
       vr = boundary(i, j, 3, user);
       vt = boundary(i, j, 3, user);
+      if(user->periodic){
+      if(i != -1 && j == -1){
+        v = x[k3 + nx * nx];
+      }
+      else if(i == -1 && j == -1){
+        v = x[nx * nx - 1 + dim*2]; //例外
+      }
+      else if(i == -1 && j != -1){
+        v = x[k3 + nx];
+      }
+
+      if(i != nx - 1 && j == -1){
+        vr = x[k3 + nx * nx + 1];
+      }
+      else if(i == nx - 1 && j == -1){
+        vr = x[nx * nx - nx + dim*2]; //ここが例外
+      }
+      else if(i == nx - 1 && j != -1){
+        vr = x[k3 + 1 - nx];
+      }
+
+      if(i == -1 && j != ny - 1){
+        vt = x[k3 + nx * 2]; // ?
+      }
+      else if(i == -1 && j == ny - 1){
+        vt = x[nx - 1 + dim*2];
+      }
+      else if(i != -1 && j == ny - 1){
+        vt = x[k3 - nx * (nx - 1)];
+      }
+      }
+
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
       if (i > -1 && j < ny - 1) vt = x[k3 + nx];
