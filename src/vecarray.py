@@ -2,9 +2,12 @@ import numpy as np
 
 def main():
   data_field = np.loadtxt('resultfield.dat',skiprows=2)
+  #data_field = np.loadtxt('initialvec.dat',skiprows=2)
   data_grad = np.loadtxt('gradient.dat',skiprows=2)
   filename_g = "gradN="
   filename_f = "solN="
+  filename_p3 = "phi3N="
+  #filename_f = "initialN="
 
   nextfield = float(data_field.shape[0]) / 3.0
   dim       = np.sqrt(nextfield)
@@ -35,12 +38,16 @@ def main():
 
   with open (r"../data/" + filename_g + str(dim) + ".dat",'w') as outgrad:
     with open (r"../data/" + filename_f + str(dim) + ".dat",'w') as outfield:
-      for j in range(dim):
-        for i in range(dim):
-          #if(j == (dim - 1)/2 and i % 10 == 0):
-          if(j % 10 == 0 and i % 10 == 0):
-            print( -region + i*hx,-region + j*hy, "0.0" ,phi1[i][j], phi2[i][j], phi3[i][j], sep=" ", file=outfield)
-            print( -region + i*hx,-region + j*hy, "0.0" ,g1[i][j], g2[i][j], g3[i][j], sep=" ", file=outgrad)
+      with open (r"../data/" + filename_p3 + str(dim) + ".dat",'w') as outp3:
+        for j in range(dim):
+          for i in range(dim):
+            #if(j == (dim - 1)/2 and i % 10 == 0):
+            if(j % 10 == 0 and i % 10 == 0):
+              print( -region + i*hx,-region + j*hy, "0.0" ,phi1[i][j], phi2[i][j], phi3[i][j], sep=" ", file=outfield)
+              print( -region + i*hx,-region + j*hy, "0.0" ,g1[i][j], g2[i][j], g3[i][j], sep=" ", file=outgrad)
+              print( -region + i*hx,-region + j*hy,g3[i][j], sep=" ", file=outp3)
+              if(i == dim-1):
+                print(" ", file = outp3)
     
   
 if __name__ == "__main__":
