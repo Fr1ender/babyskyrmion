@@ -488,27 +488,27 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
         v = x[k2 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim]; //例外
+        v = -x[nx * nx - 1 + dim]; //例外
       }
       else if(i == -1 && j != -1){
-        v = x[k2 + nx];
+        v = -x[k2 + nx];
       }
 
       if(i != nx - 1 && j == -1){
         vr = x[k2 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim]; //ここが例外
+        vr = -x[nx * nx - nx + dim]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
-        vr = x[k2 + 1 - nx];
+        vr = -x[k2 + 1 - nx];
       }
 
       if(i == -1 && j != ny - 1){
-        vt = x[k2 + nx * 2]; // ?
+        vt = -x[k2 + nx * 2]; // ? ->たぶんあってる
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim];
+        vt = -x[nx - 1 + dim];
       }
       else if(i != -1 && j == ny - 1){
         vt = x[k2 - nx * (nx - 1)];
@@ -530,20 +530,20 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       vt  = boundary(i, j, 2, user);
       if(user->periodic){
       if(i != -1 && j == -1){
-        v = x[k3 + nx * nx];
+        v = -x[k3 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim*2]; //例外
+        v = -x[nx * nx - 1 + dim*2]; //例外
       }
       else if(i == -1 && j != -1){
         v = x[k3 + nx];
       }
 
       if(i != nx - 1 && j == -1){
-        vr = x[k3 + nx * nx + 1];
+        vr = -x[k3 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim*2]; //ここが例外
+        vr = -x[nx * nx - nx + dim*2]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
         vr = x[k3 + 1 - nx];
@@ -553,10 +553,10 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
         vt = x[k3 + nx * 2]; // ?
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim*2];
+        vt = -x[nx - 1 + dim*2];
       }
       else if(i != -1 && j == ny - 1){
-        vt = x[k3 - nx * (nx - 1)];
+        vt = -x[k3 - nx * (nx - 1)];
       }
       }
 
@@ -657,30 +657,30 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
         vb = x[k2 + ny * (ny - 1)];
       }
       else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1) + dim];
+        vb = -x[ny * (ny - 1) + dim];
       } 
       else if(j != 0 && i == nx){
-        vb = x[k2 - nx];
+        vb = -x[k2 - nx];
       }
 
       if(i == 0 && j != ny){
-        vl = x[k2 + nx - 1];
+        vl = -x[k2 + nx - 1];
       }
       else if(i == 0 && j == ny){
-        vl = x[nx - 1 + dim];
+        vl = -x[nx - 1 + dim];
       }
       else if(i != 0 && j == ny){
         vl = x[k2 - ny * ny - 1];
       }
 
       if(i == nx && j != ny){
-        v = x[k2 - nx];
+        v = -x[k2 - nx];
       }
       else if(i != nx && j == ny){
         v = x[k2 - ny * ny];
       }
       else if(i == nx && j == ny){
-        v = x[dim];
+        v = -x[dim];
       }
       }
 
@@ -699,10 +699,10 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       /* periodic condition */
       if(user->periodic){
       if(j == 0 && i != nx){
-        vb = x[k3 + ny * (ny - 1)];
+        vb = -x[k3 + ny * (ny - 1)];
       }
       else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1) + dim*2];
+        vb = -x[ny * (ny - 1) + dim*2];
       } 
       else if(j != 0 && i == nx){
         vb = x[k3 - nx];
@@ -712,20 +712,20 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
         vl = x[k3 + nx - 1];
       }
       else if(i == 0 && j == ny){
-        vl = x[nx - 1 + dim*2];
+        vl = -x[nx - 1 + dim*2];
       }
       else if(i != 0 && j == ny){
-        vl = x[k3 - ny * ny - 1];
+        vl = -x[k3 - ny * ny - 1];
       }
 
       if(i == nx && j != ny){
         v = x[k3 - nx];
       }
       else if(i != nx && j == ny){
-        v = x[k3 - ny * ny];
+        v = -x[k3 - ny * ny];
       }
       else if(i == nx && j == ny){
-        v = x[dim*2];
+        v = -x[dim*2];
       }
       }
 
@@ -774,6 +774,7 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad          : %2.3e\n", (double)fquad * (double)area));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %2.3e\n", (double)chargelc));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"funcvalue         : %2.3e\n", (double)*f));
   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
 
@@ -865,27 +866,27 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
         v = x[k2 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim]; //例外
+        v = -x[nx * nx - 1 + dim]; //例外
       }
       else if(i == -1 && j != -1){
-        v = x[k2 + nx];
+        v = -x[k2 + nx];
       }
 
       if(i != nx - 1 && j == -1){
         vr = x[k2 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim]; //ここが例外
+        vr = -x[nx * nx - nx + dim]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
-        vr = x[k2 + 1 - nx];
+        vr = -x[k2 + 1 - nx];
       }
 
       if(i == -1 && j != ny - 1){
-        vt = x[k2 + nx * 2]; // ?
+        vt = -x[k2 + nx * 2]; // ?
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim];
+        vt = -x[nx - 1 + dim];
       }
       else if(i != -1 && j == ny - 1){
         vt = x[k2 - nx * (nx - 1)];
@@ -905,20 +906,20 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       vt  = boundary(i, j,3, user);
       if(user->periodic){
       if(i != -1 && j == -1){
-        v = x[k3 + nx * nx];
+        v = -x[k3 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim*2]; //例外
+        v = -x[nx * nx - 1 + dim*2]; //例外
       }
       else if(i == -1 && j != -1){
         v = x[k3 + nx];
       }
 
       if(i != nx - 1 && j == -1){
-        vr = x[k3 + nx * nx + 1];
+        vr = -x[k3 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim*2]; //ここが例外
+        vr = -x[nx * nx - nx + dim*2]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
         vr = x[k3 + 1 - nx];
@@ -928,10 +929,10 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
         vt = x[k3 + nx * 2]; // ?
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim*2];
+        vt = -x[nx - 1 + dim*2];
       }
       else if(i != -1 && j == ny - 1){
-        vt = x[k3 - nx * (nx - 1)];
+        vt = -x[k3 - nx * (nx - 1)];
       }
       }
 
@@ -1070,30 +1071,30 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
         vb = x[k2 + ny * (ny - 1)];
       }
       else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1) + dim];
+        vb = -x[ny * (ny - 1) + dim];
       } 
       else if(j != 0 && i == nx){
-        vb = x[k2 - nx];
+        vb = -x[k2 - nx];
       }
 
       if(i == 0 && j != ny){
-        vl = x[k2 + nx - 1];
+        vl = -x[k2 + nx - 1];
       }
       else if(i == 0 && j == ny){
-        vl = x[nx - 1 + dim];
+        vl = -x[nx - 1 + dim];
       }
       else if(i != 0 && j == ny){
         vl = x[k2 - ny * ny - 1];
       }
 
       if(i == nx && j != ny){
-        v = x[k2 - nx];
+        v = -x[k2 - nx];
       }
       else if(i != nx && j == ny){
         v = x[k2 - ny * ny];
       }
       else if(i == nx && j == ny){
-        v = x[dim];
+        v = -x[dim];
       }
       }
       if (i < nx && j > 0) vb = x[k2 - nx];
@@ -1111,10 +1112,10 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       /* periodic condition */
       if(user->periodic){
       if(j == 0 && i != nx){
-        vb = x[k3 + ny * (ny - 1)];
+        vb = -x[k3 + ny * (ny - 1)];
       }
       else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1) + dim*2];
+        vb = -x[ny * (ny - 1) + dim*2];
       } 
       else if(j != 0 && i == nx){
         vb = x[k3 - nx];
@@ -1124,20 +1125,20 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
         vl = x[k3 + nx - 1];
       }
       else if(i == 0 && j == ny){
-        vl = x[nx - 1 + dim*2];
+        vl = -x[nx - 1 + dim*2];
       }
       else if(i != 0 && j == ny){
-        vl = x[k3 - ny * ny - 1];
+        vl = -x[k3 - ny * ny - 1];
       }
 
       if(i == nx && j != ny){
         v = x[k3 - nx];
       }
       else if(i != nx && j == ny){
-        v = x[k3 - ny * ny];
+        v = -x[k3 - ny * ny];
       }
       else if(i == nx && j == ny){
-        v = x[dim*2];
+        v = -x[dim*2];
       }
       }
       if (i < nx && j > 0) vb = x[k3 - nx];
@@ -1156,11 +1157,11 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       PetscReal ddeddp1dx,ddeddp1dy,ddeddp2dx,ddeddp2dy,ddeddp3dx,ddeddp3dy;
       PetscReal dedp1,dedp2,dedp3;
       ddeddp1dx = (user->param_c4 * f12 * (v3 * dp2dy - v2 * dp3dy) ) / hx;
-      ddeddp1dy = (user->param_c4 * f12 * (v2 * dp2dx - v3 * dp2dy) ) / hy;
+      ddeddp1dy = (user->param_c4 * f12 * (v2 * dp2dx - v3 * dp2dx) ) / hy;
       ddeddp2dx = (user->param_c4 * f12 * (v1 * dp3dy - v3 * dp1dy) ) / hx;
-      ddeddp2dy = (user->param_c4 * f12 * (v3 * dp3dy - v1 * dp3dy) ) / hy;
+      ddeddp2dy = (user->param_c4 * f12 * (v3 * dp3dx - v1 * dp3dx) ) / hy;
       ddeddp3dx = (user->param_c4 * f12 * (v2 * dp1dy - v1 * dp2dy) ) / hx;
-      ddeddp3dy = (user->param_c4 * f12 * (v1 * dp2dy - v2 * dp1dy) ) / hy;
+      ddeddp3dy = (user->param_c4 * f12 * (v1 * dp2dx - v2 * dp1dx) ) / hy;
       dedp1     =  user->param_c4 * f12 * (dp2dx * dp3dy - dp3dx * dp2dy);
       dedp2     =  user->param_c4 * f12 * (dp3dx * dp1dy - dp1dx * dp3dy);
       dedp3     =  user->param_c4 * f12 * (dp1dx * dp2dy - dp2dx * dp1dy);
@@ -1319,27 +1320,27 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
         v = x[k2 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim]; //例外
+        v = -x[nx * nx - 1 + dim]; //例外
       }
       else if(i == -1 && j != -1){
-        v = x[k2 + nx];
+        v = -x[k2 + nx];
       }
 
       if(i != nx - 1 && j == -1){
         vr = x[k2 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim]; //ここが例外
+        vr = -x[nx * nx - nx + dim]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
-        vr = x[k2 + 1 - nx];
+        vr = -x[k2 + 1 - nx];
       }
 
       if(i == -1 && j != ny - 1){
-        vt = x[k2 + nx * 2]; // ?
+        vt = -x[k2 + nx * 2]; // ?
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim];
+        vt = -x[nx - 1 + dim];
       }
       else if(i != -1 && j == ny - 1){
         vt = x[k2 - nx * (nx - 1)];
@@ -1360,20 +1361,20 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
       vt = boundary(i, j, 3, user);
       if(user->periodic){
       if(i != -1 && j == -1){
-        v = x[k3 + nx * nx];
+        v = -x[k3 + nx * nx];
       }
       else if(i == -1 && j == -1){
-        v = x[nx * nx - 1 + dim*2]; //例外
+        v = -x[nx * nx - 1 + dim*2]; //例外
       }
       else if(i == -1 && j != -1){
         v = x[k3 + nx];
       }
 
       if(i != nx - 1 && j == -1){
-        vr = x[k3 + nx * nx + 1];
+        vr = -x[k3 + nx * nx + 1];
       }
       else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx + dim*2]; //ここが例外
+        vr = -x[nx * nx - nx + dim*2]; //ここが例外
       }
       else if(i == nx - 1 && j != -1){
         vr = x[k3 + 1 - nx];
@@ -1383,10 +1384,10 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
         vt = x[k3 + nx * 2]; // ?
       }
       else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1 + dim*2];
+        vt = -x[nx - 1 + dim*2];
       }
       else if(i != -1 && j == ny - 1){
-        vt = x[k3 - nx * (nx - 1)];
+        vt = -x[k3 - nx * (nx - 1)];
       }
       }
 
