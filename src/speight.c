@@ -375,7 +375,7 @@ PetscReal boundary(PetscInt i, PetscInt j, PetscInt fieldNUM,Vec X,AppCtx *user)
     return 0.0;
   } else {
     PetscPrintf(MPI_COMM_WORLD, "ERROR boundary");
-    return 0;
+    return dim + l + x + y;
   }
 }
 
@@ -541,9 +541,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
 
 
       /* ||\nabla /phi_3||^2 */
-      v   = boundary(i, j, 2, X, user);
-      vr  = boundary(i, j, 2, X,user);
-      vt  = boundary(i, j, 2, X,user);
+      v   = boundary(i, j, 3, X, user);
+      vr  = boundary(i, j, 3, X,user);
+      vt  = boundary(i, j, 3, X,user);
       if(user->periodic){
       if(i != -1 && j == -1){
         v = -x[k3 + nx * nx];
@@ -664,9 +664,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v1 = v;
 
       /* ||\nabla /phi_2||^2 */
-      v   = boundary(i, j, 1, X,user);
-      vl  = boundary(i, j, 1, X,user);
-      vb  = boundary(i, j, 1, X,user);
+      v   = boundary(i, j, 2, X,user);
+      vl  = boundary(i, j, 2, X,user);
+      vb  = boundary(i, j, 2, X,user);
       /* periodic condition */
       if(user->periodic){
       if(j == 0 && i != nx){
@@ -709,9 +709,9 @@ PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
       v2 = v;
 
       /* ||\nabla /phi_3||^2 */
-      v   = boundary(i, j, 1, X,user);
-      vl  = boundary(i, j, 1, X,user);
-      vb  = boundary(i, j, 1, X,user);
+      v   = boundary(i, j, 3, X,user);
+      vl  = boundary(i, j, 3, X,user);
+      vb  = boundary(i, j, 3, X,user);
       /* periodic condition */
       if(user->periodic){
       if(j == 0 && i != nx){
@@ -1284,7 +1284,7 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
   AppCtx            *user = (AppCtx *)ptr;
   PetscReal          hx = user->hx, hy = user->hy, p5 = 0.5;
-  PetscReal          vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0,flag = 0.0;
+  PetscReal          vr, vt,vl,vb, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0,flag = 0.0;
   PetscReal          v,v1,v2,v3,val,pnorm,charge = 0.0,area, PI = 3.1415926535;//, cdiv3 = user->param / three;
   const PetscScalar *x;
   PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3;
@@ -1456,10 +1456,203 @@ PetscErrorCode EnergyDensity(Vec X,Vec E,void *ptr){
         val = fquad + fskyrm + fpot + flag;
         PetscCall(VecSetValues(E, 1, &ind, &val, INSERT_VALUES));
       }
+      if(i == 0 && j == 0){
+       //PetscCall(PetscPrintf(MPI_COMM_WORLD,"lowertest leftbottom: %2.3e\n", fquad));
+      }
+      if(i == nx - 1 && j == ny - 1){
+        PetscCall(PetscPrintf(MPI_COMM_WORLD,"lowertest righttop : %2.3e\n", fquad));
+      }
 
       charge += f12;
     }
   }
+
+  for (j = 0; j <= ny; j++) {
+    for (i = 0; i <= nx; i++) {
+      k1  = nx * j + i;
+      k2  = nx * j + i + dim;
+      k3  = nx * j + i + dim * 2;
+      /* ||\nabla /phi_1||^2 */
+
+      /*old boundary*/
+      /*
+      vb = boundary(i, j, 1, user);
+      vl = boundary(i, j, 1, user);
+      v  = boundary(i, j, 1, user);
+      */
+
+      v   = boundary(i, j, 1, X,user);
+      vl  = boundary(i, j, 1, X,user);
+      vb  = boundary(i, j, 1, X,user);
+
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k1 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = x[ny * (ny - 1)];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k1 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k1 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = x[nx - 1];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k1 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k1 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k1 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = x[0];
+      }
+      }
+
+      if (i < nx && j > 0) vb = x[k1 - nx];
+      if (i > 0 && j < ny) vl = x[k1 - 1];
+      if (i < nx && j < ny) v = x[k1];
+      dp1dx = (v - vl) / hx;
+      dp1dy = (v - vb) / hy;
+      fquad = dp1dx * dp1dx + dp1dy * dp1dy;
+      v1 = v;
+
+      /* ||\nabla /phi_2||^2 */
+      v   = boundary(i, j, 2, X,user);
+      vl  = boundary(i, j, 2, X,user);
+      vb  = boundary(i, j, 2, X,user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = x[k2 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = -x[ny * (ny - 1) + dim];
+      } 
+      else if(j != 0 && i == nx){
+        vb = -x[k2 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = -x[k2 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = -x[nx - 1 + dim];
+      }
+      else if(i != 0 && j == ny){
+        vl = x[k2 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = -x[k2 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = x[k2 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = -x[dim];
+      }
+      }
+
+      if (i < nx && j > 0) vb = x[k2 - nx];
+      if (i > 0 && j < ny) vl = x[k2 - 1];
+      if (i < nx && j < ny) v = x[k2];
+      dp2dx = (v - vl) / hx;
+      dp2dy = (v - vb) / hy;
+      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
+      v2 = v;
+
+      /* ||\nabla /phi_3||^2 */
+      v   = boundary(i, j, 3, X,user);
+      vl  = boundary(i, j, 3, X,user);
+      vb  = boundary(i, j, 3, X,user);
+      /* periodic condition */
+      if(user->periodic){
+      if(j == 0 && i != nx){
+        vb = -x[k3 + ny * (ny - 1)];
+      }
+      else if(j == 0 && i == nx){
+        vb = -x[ny * (ny - 1) + dim*2];
+      } 
+      else if(j != 0 && i == nx){
+        vb = x[k3 - nx];
+      }
+
+      if(i == 0 && j != ny){
+        vl = x[k3 + nx - 1];
+      }
+      else if(i == 0 && j == ny){
+        vl = -x[nx - 1 + dim*2];
+      }
+      else if(i != 0 && j == ny){
+        vl = -x[k3 - ny * ny - 1];
+      }
+
+      if(i == nx && j != ny){
+        v = x[k3 - nx];
+      }
+      else if(i != nx && j == ny){
+        v = -x[k3 - ny * ny];
+      }
+      else if(i == nx && j == ny){
+        v = -x[dim*2];
+      }
+      }
+
+      if (i < nx && j > 0) vb = x[k3 - nx];
+      if (i > 0 && j < ny) vl = x[k3 - 1];
+      if (i < nx && j < ny) v = x[k3];
+      dp3dx = (v - vl) / hx;
+      dp3dy = (v - vb) / hy;
+      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
+      v3 = v;
+
+      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
+      flag += (pnorm - 1) * (pnorm - 1);
+      //chargelc += v1 * (dp2dx * dp3dy - dp3dx * dp2dy) + v2 * (dp3dx * dp1dy - dp1dx * dp3dy) + v3 * (dp1dx * dp2dy - dp2dx * dp1dy);
+      if(j % 10 == 0 && i % 10 == 0){
+        //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
+      }
+
+      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
+      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
+      fskyrm = f12*f12;
+      f12 = 0;
+      fpot = PotentialTerm(user, v3) + Potp1(v1, user);
+
+      fquad  = user->param_c2 * fquad / 2.0;
+      fskyrm = p5 * user->param_c4 * fskyrm;
+      flag = user->param_lag * flag;
+
+      val = 0;
+      ind = k1;
+      if( j < nx && i < ny){
+        val = fquad + fskyrm + fpot + flag;
+        PetscCall(VecSetValues(E, 1, &ind, &val, ADD_VALUES));
+      }
+      if(i == 0 && j == 0){
+        PetscCall(PetscPrintf(MPI_COMM_WORLD,"uppertest leftbottom: %2.3e\n", fquad));
+      }
+      if(i == nx - 1 && j == ny - 1){
+        //PetscCall(PetscPrintf(MPI_COMM_WORLD,"uppertest righttop : %2.3e\n", fquad));
+      }
+      fpot = 0;
+      flag = 0;
+      fquad= 0;
+    }
+  }
+
+  PetscCall(VecScale(E,p5));
+
   /* charge calculation */
   area = p5 * hx * hy * 2;
   charge = area * charge / ( 4 * PI );
