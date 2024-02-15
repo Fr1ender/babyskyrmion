@@ -9,4 +9,5 @@ gradient.dat
 data/
 data_old/
 test/
+mpitest/
 .cache/clangd/index/
