@@ -28,9 +28,7 @@ command line argument
 
 */
 #include "mpi.h"
-#include "petscsystypes.h"
 #include "petsctao.h"
-#include "petscvec.h"
 #include "petscviewer.h"
 #include <omp.h>
 
@@ -150,7 +148,9 @@ int main(int argc, char **argv){
   PetscCall(TaoSetSolution(tao, x));
 
   /* Set routine for function and gradient evaluation */
-  PetscCall(TaoSetObjectiveAndGradient(tao, NULL, FormFunctionGradient, (void *)&user));
+  PetscCall(TaoSetObjective(tao, FormFunction, (void *)&user));
+  PetscCall(TaoSetGradient(tao, NULL, FormGradient , (void *)&user));
+  //PetscCall(TaoSetObjectiveAndGradient(tao, NULL, FormFunctionGradient, (void *)&user));
 
   /* Set Hessian */
   //PetscCall(MatCreateSeqAIJ(PETSC_COMM_SELF, user.ndim, user.ndim, 5, NULL, &H));
@@ -239,11 +239,11 @@ PetscReal DerivPot(PetscReal phi3,AppCtx* user){
 }
 
 PetscReal Potp1(PetscReal phi1, AppCtx* user){
-  return user->param_c0 * (1 - phi1) * (1 - phi1);
+  return user->param_c0 * (1 - phi1);
 }
 
 PetscReal DerivPotp1(PetscReal phi1,AppCtx* user){
-  return user->param_c0 * (1 - phi1) * (-1) / 2.0; // initial boundary忘れずに
+  return user->param_c0 * (-1); // initial boundary忘れずに
 }
 
 /* for evaluating skyrm term
@@ -414,438 +414,35 @@ PetscReal boundary(PetscInt i, PetscInt j, PetscInt fieldNUM,Vec X,AppCtx *user)
 */
 PetscErrorCode FormFunctionGradient(Tao tao, Vec X, PetscReal *f, Vec G, void *ptr)
 {
-  PetscFunctionBeginUser;
-  PetscCall(FormFunction(tao, X, f, ptr));
-  PetscCall(FormGradient(tao, X, G, ptr));
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-/*
-FormFunction - Evaluate our energy integral;
-
-*/
-
-PetscErrorCode FormFunction(Tao tao, Vec X, PetscReal *f,void *ptr )
-{
-
-  AppCtx            *user = (AppCtx *)ptr;
-  PetscReal          hx = user->hx, hy = user->hy, area, p5 = 0.5;
-  PetscReal          vb, vl, vr, vt, dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy, fquad = 0.0, f12 = 0.0 ,fskyrm = 0.0, fpot = 0.0;
-  PetscReal          v,v1,v2,v3,derrickCHK;//, cdiv3 = user->param / three;
-  const PetscScalar *x;
-  PetscInt           nx = user->mx, ny = user->my, i, j, k1,k2,k3,dim;
-  PetscReal          pnorm = 0.0, flag = 0.0, lagmul = user->param_lag,chargelc = 0.0; /* DO NOT FORGET TO CHANGE energy density viewer */
-  const PetscReal PI = 3.1415926535;
-
-  PetscFunctionBeginUser;
-  /* Get pointer to vector data */
-  PetscCall(VecGetArrayRead(X,&x));
-  dim = nx * ny;
-
-  /* Compute function 
-
-    Evaluate integrate by summing value at volume of two triangular prism
-  
-  */
-
-  #pragma omp parallel
-  {
-  /* lower triangle */
-  #pragma omp for
-  for (j = -1; j < ny; j++) {
-    for (i = -1; i < nx; i++){
-      k1  = nx * j + i;
-      k2  = nx * j + i + dim;
-      k3  = nx * j + i + dim * 2;
-
-      v   = boundary(i, j, 1,X, user);
-      vr  = boundary(i, j, 1,X, user);
-      vt  = boundary(i, j, 1,X, user);
-      /* ||\nabla /phi_1||^2 */
-      /* old boundary (fixed)*/
-      /*
-      v   = boundary(i, j, 1, user);
-      vr  = boundary(i, j, 1, user);
-      vt  = boundary(i, j, 1, user);
-      */
-
-      /* boundary new (periodic)*/
-
-      v   = boundary(i, j, 1,X, user);
-      vr  = boundary(i, j, 1,X, user);
-      vt  = boundary(i, j, 1,X, user);
-      if(user->periodic){
-      if(i != -1 && j == -1){
-        v = x[k1 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = x[nx * nx - 1]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = x[k1 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = x[k1 + ny * ny + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = x[k1 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = x[k1 + nx * 2]; // ?
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = x[k1 - nx * (nx - 1)];
-      }
-      }
-
-      if (i >= 0 && j >= 0) v = x[k1];
-      if (i < nx - 1 && j > -1) vr = x[k1 + 1];
-      if (i > -1 && j < ny - 1) vt = x[k1 + nx];
-      dp1dx = (vr - v) / hx;
-      dp1dy = (vt - v) / hy;
-      v1 = v;
-
-      fquad += dp1dx * dp1dx + dp1dy * dp1dy;
-
-      /* ||\nabla /phi_2||^2 */
-      v   = boundary(i, j, 2,X, user);
-      vr  = boundary(i, j, 2,X, user);
-      vt  = boundary(i, j, 2,X, user);
-      if(user->periodic){
-      if(i != -1 && j == -1){
-        v = x[k2 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = -x[nx * nx - 1 + dim]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = -x[k2 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = x[k2 + nx * nx + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = -x[nx * nx - nx + dim]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = -x[k2 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = -x[k2 + nx * 2]; // ? ->たぶんあってる
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = -x[nx - 1 + dim];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = x[k2 - nx * (nx - 1)];
-      }
-      }
-      if (i >= 0 && j >= 0) v = x[k2];
-      if (i < nx - 1 && j > -1) vr = x[k2 + 1];
-      if (i > -1 && j < ny - 1) vt = x[k2 + nx];
-      dp2dx = (vr - v) / hx;
-      dp2dy = (vt - v) / hy;
-      v2 = v;
-
-      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
-
-
-      /* ||\nabla /phi_3||^2 */
-      v   = boundary(i, j, 3, X, user);
-      vr  = boundary(i, j, 3, X,user);
-      vt  = boundary(i, j, 3, X,user);
-      if(user->periodic){
-      if(i != -1 && j == -1){
-        v = -x[k3 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = -x[nx * nx - 1 + dim*2]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = x[k3 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = -x[k3 + nx * nx + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = -x[nx * nx - nx + dim*2]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = x[k3 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = x[k3 + nx * 2]; // ?
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = -x[nx - 1 + dim*2];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = -x[k3 - nx * (nx - 1)];
-      }
-      }
-
-      if (i >= 0 && j >= 0) v = x[k3];
-      if (i < nx - 1 && j > -1) vr = x[k3 + 1];
-      if (i > -1 && j < ny - 1) vt = x[k3 + nx];
-      dp3dx = (vr - v) / hx;
-      dp3dy = (vt - v) / hy;
-      v3 = v;
-
-      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
-      // fquad = user->param_c2 * fquad / 2.0; after summing all, do this
-      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
-      flag += (pnorm - 1) * (pnorm - 1);
-
-      
-
-      f12 += (v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy) - (v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy);
-      //f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
-      
-      fskyrm += f12 * f12;
-
-      //chargelc += v1 * (dp2dx * dp3dy - dp3dx * dp2dy) + v2 * (dp3dx * dp1dy - dp1dx * dp3dy) + v3 * (dp1dx * dp2dy - dp2dx * dp1dy) ;
-      chargelc += f12;
-      f12 = 0.0;
-      fpot += PotentialTerm(user, v3) + Potp1(v1,user);
-      // flin -= (v + vr + vt) / 3.0 ;
-    }
-  }
-  /* upper triangle*/
-  #pragma omp for
-  for (j = 0; j <= ny; j++) {
-    for (i = 0; i <= nx; i++) {
-      k1  = nx * j + i;
-      k2  = nx * j + i + dim;
-      k3  = nx * j + i + dim * 2;
-      /* ||\nabla /phi_1||^2 */
-
-      /*old boundary*/
-      /*
-      vb = boundary(i, j, 1, user);
-      vl = boundary(i, j, 1, user);
-      v  = boundary(i, j, 1, user);
-      */
-
-      v   = boundary(i, j, 1, X,user);
-      vl  = boundary(i, j, 1, X,user);
-      vb  = boundary(i, j, 1, X,user);
-
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = x[k1 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1)];
-      } 
-      else if(j != 0 && i == nx){
-        vb = x[k1 - nx];
-      }
-
-      if(i == 0 && j != ny){
-        vl = x[k1 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = x[nx - 1];
-      }
-      else if(i != 0 && j == ny){
-        vl = x[k1 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = x[k1 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = x[k1 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = x[0];
-      }
-      }
-
-      if (i < nx && j > 0) vb = x[k1 - nx];
-      if (i > 0 && j < ny) vl = x[k1 - 1];
-      if (i < nx && j < ny) v = x[k1];
-      dp1dx = (v - vl) / hx;
-      dp1dy = (v - vb) / hy;
-      fquad += dp1dx * dp1dx + dp1dy * dp1dy;
-      v1 = v;
-
-      /* ||\nabla /phi_2||^2 */
-      v   = boundary(i, j, 2, X,user);
-      vl  = boundary(i, j, 2, X,user);
-      vb  = boundary(i, j, 2, X,user);
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = x[k2 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = -x[ny * (ny - 1) + dim];
-      } 
-      else if(j != 0 && i == nx){
-        vb = -x[k2 - nx];
-      }
-
-      if(i == 0 && j != ny){
-        vl = -x[k2 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = -x[nx - 1 + dim];
-      }
-      else if(i != 0 && j == ny){
-        vl = x[k2 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = -x[k2 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = x[k2 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = -x[dim];
-      }
-      }
-
-      if (i < nx && j > 0) vb = x[k2 - nx];
-      if (i > 0 && j < ny) vl = x[k2 - 1];
-      if (i < nx && j < ny) v = x[k2];
-      dp2dx = (v - vl) / hx;
-      dp2dy = (v - vb) / hy;
-      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
-      v2 = v;
-
-      /* ||\nabla /phi_3||^2 */
-      v   = boundary(i, j, 3, X,user);
-      vl  = boundary(i, j, 3, X,user);
-      vb  = boundary(i, j, 3, X,user);
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = -x[k3 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = -x[ny * (ny - 1) + dim*2];
-      } 
-      else if(j != 0 && i == nx){
-        vb = x[k3 - nx];
-      }
-
-      if(i == 0 && j != ny){
-        vl = x[k3 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = -x[nx - 1 + dim*2];
-      }
-      else if(i != 0 && j == ny){
-        vl = -x[k3 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = x[k3 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = -x[k3 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = -x[dim*2];
-      }
-      }
-
-      if (i < nx && j > 0) vb = x[k3 - nx];
-      if (i > 0 && j < ny) vl = x[k3 - 1];
-      if (i < nx && j < ny) v = x[k3];
-      dp3dx = (v - vl) / hx;
-      dp3dy = (v - vb) / hy;
-      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
-      v3 = v;
-
-      pnorm  = v1 * v1 + v2 * v2 + v3 * v3;
-      flag += (pnorm - 1) * (pnorm - 1);
-      //chargelc += v1 * (dp2dx * dp3dy - dp3dx * dp2dy) + v2 * (dp3dx * dp1dy - dp1dx * dp3dy) + v3 * (dp1dx * dp2dy - dp2dx * dp1dy);
-      if(j % 10 == 0 && i % 10 == 0){
-        //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
-      }
-
-      f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
-      f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
-      fskyrm += f12*f12;
-      chargelc += f12;
-      f12 = 0;
-      fpot += PotentialTerm(user, v3) + Potp1(v1, user);
-      //PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad          : %2.3e\n", (double)fquad * (double)area));
-    }
-  }
-
-  #pragma omp single
-  {
-  fquad  = user->param_c2 * fquad / 2.0;
-  fskyrm = p5 * user->param_c4 * fskyrm;
-  flag = lagmul * flag;
-
-  PetscCall(VecRestoreArrayRead(X, &x));
-  area = p5 * hx * hy;
-  *f   = area * (fquad + fskyrm + fpot + flag);
-  chargelc = area * chargelc / ( 4.0 * PI );
-  derrickCHK = fskyrm - fpot;
-  if(derrickCHK < 0) derrickCHK = - derrickCHK;
-  derrickCHK = derrickCHK * area;
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot(E0)           : %2.3e\n", (double)fpot * (double)area));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme(E4)        : %2.3e\n", (double)fskyrm * (double)area));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme - fpot : %2.3e\n", (double)derrickCHK));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad          : %2.3e\n", (double)fquad * (double)area));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %2.3e\n", (double)chargelc));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"funcvalue      : %2.3e\n", (double)*f));
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
-
-  //PetscCall(VecSetValues(user->chargeitr, 1, &user->itr, &chargelc, ADD_VALUES));
-  //PetscCall(VecSetValues(user->derrick, 1, &user->itr, &derrickCHK, ADD_VALUES));
-  user->itr += 1;
-  user->normglobal = 1.0 / sqrt(pnorm);
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"TEST         : %2.3e\n", (double)tao->gatol));
-  //PetscCall(VecScale(X,user->normglobal));
-  //f[1] = 2.1;
-  f[1] = 0; // 0 or nx
-  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"f[0]         : %2.3e\n", (double)f[1]));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-  }
-  }
-}
-
-PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
   AppCtx          *user = (AppCtx *)ptr;
   PetscReal         zero = 0.0, p5 = 0.5, val;
   PetscInt          nx = user->mx, ny = user->my, dim, i,j,k1,k2,k3,ind;
   PetscReal         hx = user->hx, hy = user->hy, lagmul = user->param_lag;
   PetscReal         vb, vl, vr, vt,v,v1,v2,v3;
-  PetscReal         dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy,f12 = 0.0, area,pnorm,chargeCheck = 0.0;
-  const PetscScalar *x;
+  PetscReal         fskyrm = 0.0,fpot = 0.0,chargelc = 0.0,derrickCHK,flag = 0.0,fquad = 0.0;
+  PetscReal         dp1dx, dp1dy,dp2dx,dp2dy,dp3dx,dp3dy,f12 = 0.0, area,pnorm;
+  PetscScalar *x;
 
   PetscFunctionBeginUser;
   /* Initialize vector for gradient*/
   PetscCall(VecSet(G, zero));
   dim = nx * ny;
   area = hx * hy * p5;
-  //lagmul = 0.0;
 
-  PetscCall(VecGetArrayRead(X, &x));
+  PetscCall(VecGetArray(X, &x));
+
+  //lagmul = 0.0;
+  PetscReal norm,regular;
+  for(int i=0;i<dim;i++){
+    norm = x[i] * x[i] + x[i+dim] * x[i+dim] + x[i+dim*2] * x[i+dim*2];
+    regular = 1.0 / sqrt(norm);
+    x[i] = x[i] * regular;
+    x[i+dim] = x[i+dim] * regular;
+    x[i+dim*2] = x[i+dim*2] * regular;
+    norm = x[i] * x[i] + x[i+dim] * x[i+dim] + x[i+dim*2] * x[i+dim*2];
+   //PetscCall(PetscPrintf(MPI_COMM_WORLD,"%2.3e\n",norm));
+  }
+
   /*Lower triangular contiribution*/
   for (j = -1; j < ny; j++) {
     for (i = -1; i < nx; i++) {
@@ -856,80 +453,19 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       v   = boundary(i, j, 1, X,user);
       vr  = boundary(i, j, 1, X,user);
       vt  = boundary(i, j, 1, X,user);
-      /* boundary new (periodic)*/
-      if(user->periodic){     
-      if(i != -1 && j == -1){
-        v = x[k1 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = x[nx * nx - 1]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = x[k1 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = x[k1 + nx * nx + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = x[nx * nx - nx]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = x[k1 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = x[k1 + nx * 2]; // ?
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = x[nx - 1];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = x[k1 - nx * (nx - 1)];
-      }
-      }
+      
       if (i >= 0 && j >= 0) v = x[k1];
       if (i < nx - 1 && j > -1) vr = x[k1 + 1];
       if (i > -1 && j < ny - 1) vt = x[k1 + nx];
       dp1dx = (vr - v) / hx;
       dp1dy = (vt - v) / hy;
       v1 = v;
+      fquad += dp1dx * dp1dx + dp1dy * dp1dy;
 
       /* ||\nabla /phi_2||^2 */
       v   = boundary(i, j, 2, X, user);
       vr  = boundary(i, j, 2, X, user);
       vt  = boundary(i, j, 2, X, user);
-      if(user->periodic){
-      if(i != -1 && j == -1){
-        v = x[k2 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = -x[nx * nx - 1 + dim]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = -x[k2 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = x[k2 + nx * nx + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = -x[nx * nx - nx + dim]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = -x[k2 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = -x[k2 + nx * 2]; // ?
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = -x[nx - 1 + dim];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = x[k2 - nx * (nx - 1)];
-      }
-      }
 
       if (i >= 0 && j >= 0) v = x[k2];
       if (i < nx - 1 && j > -1) vr = x[k2 + 1];
@@ -937,42 +473,12 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       dp2dx = (vr - v) / hx;
       dp2dy = (vt - v) / hy;
       v2 = v;
+      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
 
       /* ||\nabla /phi_3||^2 */
       v   = boundary(i, j,3,X, user);
       vr  = boundary(i, j,3,X, user);
       vt  = boundary(i, j,3,X, user);
-      if(user->periodic){
-      if(i != -1 && j == -1){
-        v = -x[k3 + nx * nx];
-      }
-      else if(i == -1 && j == -1){
-        v = -x[nx * nx - 1 + dim*2]; //例外
-      }
-      else if(i == -1 && j != -1){
-        v = x[k3 + nx];
-      }
-
-      if(i != nx - 1 && j == -1){
-        vr = -x[k3 + nx * nx + 1];
-      }
-      else if(i == nx - 1 && j == -1){
-        vr = -x[nx * nx - nx + dim*2]; //ここが例外
-      }
-      else if(i == nx - 1 && j != -1){
-        vr = x[k3 + 1 - nx];
-      }
-
-      if(i == -1 && j != ny - 1){
-        vt = x[k3 + nx * 2]; // ?
-      }
-      else if(i == -1 && j == ny - 1){
-        vt = -x[nx - 1 + dim*2];
-      }
-      else if(i != -1 && j == ny - 1){
-        vt = -x[k3 - nx * (nx - 1)];
-      }
-      }
 
       if (i >= 0 && j >= 0) v = x[k3];
       if (i < nx - 1 && j > -1) vr = x[k3 + 1];
@@ -980,8 +486,10 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       dp3dx = (vr - v) / hx;
       dp3dy = (vt - v) / hy;
       v3 = v;
+      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
 
       pnorm = v1 * v1 + v2 * v2 + v3 * v3;
+      flag += 1 - pnorm;
 
       f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
       f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
@@ -1011,52 +519,55 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       /* phi_1 */ /* param-c2 is not working for this gradient TODO */
       if (i != -1 && j != -1) {
         ind = k1;
-        val = -dp1dx / hx - dp1dy / hy - ddeddp1dx - ddeddp1dy + (dedp1 + /*v1 * (v1 * (dp1dx / hx + dp1dy / hy) + v2 * (dp2dx / hx + dp2dy / hy) + v3 * (dp3dx / hx + dp3dy / hy)) */4 * lagmul * (pnorm - 1) * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3)); /* last term is lagrange multiplier term */
+        val = -dp1dx / hx - dp1dy / hy - ddeddp1dx - ddeddp1dy + (dedp1 + /*v1 * (v1 * (dp1dx / hx + dp1dy / hy) + v2 * (dp2dx / hx + dp2dy / hy) + v3 * (dp3dx / hx + dp3dy / hy)) */2 * lagmul * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3)); /* last term is lagrange multiplier term */
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k1 + 1;
-        val = dp1dx / hx + ddeddp1dx + (dedp1 + /* v1 * (- v1 * (dp1dx / hx) - v2 * (dp2dx / hx) - v3 * (dp3dx / hx ))*/ 4 * lagmul * (pnorm - 1) * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dx  - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx - dlagp3));
+        val = dp1dx / hx + ddeddp1dx + (dedp1 + /* v1 * (- v1 * (dp1dx / hx) - v2 * (dp2dx / hx) - v3 * (dp3dx / hx ))*/ 2 * lagmul * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dx  - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k1 + nx;
-        val = dp1dy / hy + ddeddp1dy + (dedp1 + /* v1 * (- v1 * (dp1dy / hy) - v2 * (dp2dy / hy) - v3 * (dp3dy / hy )) */4 * lagmul * (pnorm - 1) * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
+        val = dp1dy / hy + ddeddp1dy + (dedp1 + /* v1 * (- v1 * (dp1dy / hy) - v2 * (dp2dy / hy) - v3 * (dp3dy / hy )) */2 * lagmul * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       /* phi_2 */
       if (i != -1 && j != -1) {
         ind = k2;
-        val = -dp2dx / hx - dp2dy / hy - ddeddp2dx - ddeddp2dy + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v2 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3));
+        val = -dp2dx / hx - dp2dy / hy - ddeddp2dx - ddeddp2dy + (dedp2 + 2 * lagmul * v2) / 3.0 + v2 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k2 + 1;
-        val = dp2dx / hx + ddeddp2dx + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v2 * ( v1 * (-ddlagp1dx - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx- dlagp3));
+        val = dp2dx / hx + ddeddp2dx + (dedp2 + 2 * lagmul * v2) / 3.0 + v2 * ( v1 * (-ddlagp1dx - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx- dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k2 + nx;
-        val = dp2dy / hy + ddeddp2dy + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v2 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
+        val = dp2dy / hy + ddeddp2dy + (dedp2 + 2 * lagmul * v2) / 3.0 + v2 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       /* phi_3 */
       if (i != -1 && j != -1) {
         ind = k3;
-        val = -dp3dx / hx - dp3dy / hy - ddeddp3dx - ddeddp3dy + (dedp3 + DerivPot(v3,user) + 4 * lagmul * (pnorm - 1) * v3) /3.0 + v3 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3));
+        val = -dp3dx / hx - dp3dy / hy - ddeddp3dx - ddeddp3dy + (dedp3 + DerivPot(v3,user) + 2 * lagmul * v3) /3.0 + v3 * ( v1 * (ddlagp1dx + ddlagp1dy - dlagp1) + v2 * (ddlagp2dx + ddlagp2dy - dlagp2) + v3 * (ddlagp3dx + ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx - 1 && j != -1) {
         ind = k3 + 1;
-        val = dp3dx / hx + ddeddp3dx + (dedp3 + DerivPot(v3,user) + 4 * lagmul * (pnorm - 1) * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dx - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx - dlagp3));
+        val = dp3dx / hx + ddeddp3dx + (dedp3 + DerivPot(v3,user) + 2 * lagmul * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dx - dlagp1) + v2 * (-ddlagp2dx - dlagp2) + v3 * (-ddlagp3dx - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != -1 && j != ny - 1) {
         ind = k3 + nx;
-        val = dp3dy / hy + ddeddp3dy + (dedp3 + DerivPot(v3,user) + 4 * lagmul * (pnorm - 1) * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
+        val = dp3dy / hy + ddeddp3dy + (dedp3 + DerivPot(v3,user) + 2 * lagmul * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dy - dlagp1) + v2 * (-ddlagp2dy - dlagp2) + v3 * (-ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
-      chargeCheck += f12;      
+      fskyrm += f12*f12;
+      chargelc += f12;
+      f12 = 0;
+      fpot += PotentialTerm(user, v3) + Potp1(v1, user);
     }
   }
 
@@ -1071,133 +582,46 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       vb = boundary(i, j,1,X, user);
       vl = boundary(i, j,1,X, user);
       v  = boundary(i, j,1,X, user);
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = x[k1 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = x[ny * (ny - 1)];
-      } 
-      else if(j != 0 && i == nx){
-        vb = x[k1 - nx];
-      }
 
-      if(i == 0 && j != ny){
-        vl = x[k1 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = x[nx - 1];
-      }
-      else if(i != 0 && j == ny){
-        vl = x[k1 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = x[k1 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = x[k1 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = x[0];
-      }
-      }
       if (i < nx && j > 0) vb = x[k1 - nx];
       if (i > 0 && j < ny) vl = x[k1 - 1];
       if (i < nx && j < ny) v = x[k1];
       dp1dx = (v - vl) / hx;
       dp1dy = (v - vb) / hy;
       v1 = v;
+      fquad += dp1dx * dp1dx + dp1dy * dp1dy;
 
       /* ||\nabla /phi_2||^2 */
       vb = boundary(i, j, 2, X, user);
       vl = boundary(i, j, 2, X, user);
       v  = boundary(i, j, 2, X,user);
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = x[k2 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = -x[ny * (ny - 1) + dim];
-      } 
-      else if(j != 0 && i == nx){
-        vb = -x[k2 - nx];
-      }
+      
 
-      if(i == 0 && j != ny){
-        vl = -x[k2 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = -x[nx - 1 + dim];
-      }
-      else if(i != 0 && j == ny){
-        vl = x[k2 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = -x[k2 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = x[k2 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = -x[dim];
-      }
-      }
       if (i < nx && j > 0) vb = x[k2 - nx];
       if (i > 0 && j < ny) vl = x[k2 - 1];
       if (i < nx && j < ny) v = x[k2];
       dp2dx = (v - vl) / hx;
       dp2dy = (v - vb) / hy;
       v2 = v;
+      fquad += dp2dx * dp2dx + dp2dy * dp2dy;
 
 
       /* ||\nabla /phi_3||^2 */
       vb = boundary(i, j, 3, X,user);
       vl = boundary(i, j, 3, X,user);
       v  = boundary(i, j, 3, X,user);
-      /* periodic condition */
-      if(user->periodic){
-      if(j == 0 && i != nx){
-        vb = -x[k3 + ny * (ny - 1)];
-      }
-      else if(j == 0 && i == nx){
-        vb = -x[ny * (ny - 1) + dim*2];
-      } 
-      else if(j != 0 && i == nx){
-        vb = x[k3 - nx];
-      }
-
-      if(i == 0 && j != ny){
-        vl = x[k3 + nx - 1];
-      }
-      else if(i == 0 && j == ny){
-        vl = -x[nx - 1 + dim*2];
-      }
-      else if(i != 0 && j == ny){
-        vl = -x[k3 - ny * ny - 1];
-      }
-
-      if(i == nx && j != ny){
-        v = x[k3 - nx];
-      }
-      else if(i != nx && j == ny){
-        v = -x[k3 - ny * ny];
-      }
-      else if(i == nx && j == ny){
-        v = -x[dim*2];
-      }
-      }
+      
       if (i < nx && j > 0) vb = x[k3 - nx];
       if (i > 0 && j < ny) vl = x[k3 - 1];
       if (i < nx && j < ny) v = x[k3];
       dp3dx = (v - vl) / hx;
       dp3dy = (v - vb) / hy;
       v3 = v;
+      fquad += dp3dx * dp3dx + dp3dy * dp3dy;
 
       pnorm = v1 * v1 + v2 * v2 + v3 * v3;
+
+      flag += 1 - pnorm;
 
       f12 = v1*dp2dx*dp3dy + v3*dp1dx*dp2dy + v2*dp3dx*dp1dy;
       f12 -= v2*dp1dx*dp3dy + v3*dp2dx*dp1dy + v1*dp3dx*dp2dy;
@@ -1227,17 +651,17 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
       /* phi_1 */
       if (i != nx && j != 0) {
         ind = k1 - nx;
-        val = -dp1dy / hy - ddeddp1dy + (dedp1 + /* v1 * (v1 * (dp1dy / hy) + v2 * (dp2dy / hy) + v3 * (dp3dy / hy))*/ - 4 * lagmul * (pnorm - 1) * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
+        val = -dp1dy / hy - ddeddp1dy + (dedp1 + /* v1 * (v1 * (dp1dy / hy) + v2 * (dp2dy / hy) + v3 * (dp3dy / hy))*/ + 2 * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k1 - 1;
-        val = -dp1dx / hx - ddeddp1dx + (dedp1 + /* v1 * (v1 * (dp1dx / hx ) + v2 * (dp2dx / hx) + v3 * (dp3dx / hx))*/ - 4 * lagmul * (pnorm - 1) * v1  + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
+        val = -dp1dx / hx - ddeddp1dx + (dedp1 + /* v1 * (v1 * (dp1dx / hx ) + v2 * (dp2dx / hx) + v3 * (dp3dx / hx))*/ + 2 * lagmul * v1  + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k1;
-        val = dp1dx / hx + dp1dy / hy + ddeddp1dx + ddeddp1dy + (dedp1 + /* - v1 * (v1 * (dp1dx / hx + dp1dy / hy) + v2 * (dp2dx / hx + dp2dy / hy) + v3 * (dp3dx / hx + dp3dy / hy)) */ + 4 * lagmul * (pnorm - 1) * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
+        val = dp1dx / hx + dp1dy / hy + ddeddp1dx + ddeddp1dy + (dedp1 + /* - v1 * (v1 * (dp1dx / hx + dp1dy / hy) + v2 * (dp2dx / hx + dp2dy / hy) + v3 * (dp3dx / hx + dp3dy / hy)) */ + 2 * lagmul * v1 + DerivPotp1(v1, user)) / 3.0 + v1 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
 
@@ -1245,17 +669,17 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
       if (i != nx && j != 0) {
         ind = k2 - nx;
-        val = -dp2dy / hy - ddeddp2dy + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v2 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
+        val = -dp2dy / hy - ddeddp2dy + (dedp2 + 2 * lagmul * v2) / 3.0 + v2 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k2 - 1;
-        val = -dp2dx / hx - ddeddp2dx + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v2 * ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
+        val = -dp2dx / hx - ddeddp2dx + (dedp2 + 2 * lagmul * v2) / 3.0 + v2 * ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k2;
-        val = dp2dx / hx + dp2dy / hy + ddeddp2dx + ddeddp2dy + (dedp2 + 4 * lagmul * (pnorm - 1) * v2) / 3.0 + v3 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
+        val = dp2dx / hx + dp2dy / hy + ddeddp2dx + ddeddp2dy + (dedp2 + 2 * lagmul * v2) / 3.0 + v3 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
 
@@ -1263,42 +687,49 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
 
       if (i != nx && j != 0) {
         ind = k3 - nx;
-        val = -dp3dy / hy - ddeddp3dy + (dedp3 + DerivPot(v3, user) + 4 * lagmul * (pnorm - 1) * v3) / 3.0 + v3 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
+        val = -dp3dy / hy - ddeddp3dy + (dedp3 + DerivPot(v3, user) + 2 * lagmul * v3) / 3.0 + v3 * ( v1 * (ddlagp1dy - dlagp1) + v2 * (ddlagp2dy - dlagp2) + v3 * (ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != 0 && j != ny) {
         ind = k3 - 1;
-        val = -dp3dx / hx - ddeddp3dx + (dedp3 + DerivPot(v3,user) + 4 * lagmul * (pnorm - 1) * v3) / 3.0 + ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
+        val = -dp3dx / hx - ddeddp3dx + (dedp3 + DerivPot(v3,user) + 2 * lagmul * v3) / 3.0 + ( v1 * (ddlagp1dx - dlagp1) + v2 * (ddlagp2dx - dlagp2) + v3 * (ddlagp3dx - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
       if (i != nx && j != ny) {
         ind = k3;
-        val = dp3dx / hx + dp3dy / hy + ddeddp3dx + ddeddp3dy + (dedp3 + DerivPot(v3,user) + 4 * lagmul * (pnorm - 1) * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
+        val = dp3dx / hx + dp3dy / hy + ddeddp3dx + ddeddp3dy + (dedp3 + DerivPot(v3,user) + 2 * lagmul * v3) / 3.0 + v3 * ( v1 * (-ddlagp1dx - ddlagp1dy - dlagp1) + v2 * (-ddlagp2dx - ddlagp2dy - dlagp2) + v3 * (-ddlagp3dx - ddlagp3dy - dlagp3));
         PetscCall(VecSetValues(G, 1, &ind, &val, ADD_VALUES));
       }
-      chargeCheck += f12;
+      fskyrm += f12*f12;
+      chargelc += f12;
+      f12 = 0;
+      fpot += PotentialTerm(user, v3) + Potp1(v1, user);
     }
   }  
   const double PI = 3.1415926535;
-  chargeCheck = area * chargeCheck / ( 4.0 * PI );
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge : %2.3e\n", (double)chargeCheck));
+  fquad  = user->param_c2 * fquad / 2.0;
+  fskyrm = p5 * user->param_c4 * fskyrm;
+  flag = lagmul * flag;
+  area = p5 * hx * hy;
+  *f   = area * (fquad + fskyrm + fpot + flag);
+  chargelc = area * chargelc / ( 4.0 * PI );
+  derrickCHK = fskyrm - fpot;
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge : %2.3e\n", (double)chargeCheck));
 
-/*
-  i = (nx - 1)/2; j = (ny - 1)/2;
-  k1  = nx * j + i;
-  k2  = nx * j + i + dim;
-  k3  = nx * j + i + dim * 2;
-  val = 0;
-  ind = k1;
-  PetscCall(VecSetValues(G, 1, &ind, &val, INSERT_VALUES));
-  ind = k2;
-  PetscCall(VecSetValues(G, 1, &ind, &val, INSERT_VALUES));
-  ind = k3;
-  PetscCall(VecSetValues(G, 1, &ind, &val, INSERT_VALUES));
-  */  
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fpot(E0)           : %2.3e\n", (double)fpot * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme(E4)        : %2.3e\n", (double)fskyrm * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fskyrme - fpot : %2.3e\n", (double)derrickCHK));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"flag           : %2.3e\n", (double)flag * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"fquad          : %2.3e\n", (double)fquad * (double)area));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"charge         : %e\n", (double)chargelc));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"funcvalue      : %2.3e\n", (double)*f));
+  //PetscCall(PetscPrintf(MPI_COMM_WORLD,"pnorm : %2.3e\n", (double)pnorm));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,"----------------------------\n"));
   /* Assemble Vector */
   PetscCall(VecAssemblyBegin(G));
   PetscCall(VecAssemblyEnd(G));
+  PetscCall(VecRestoreArray(X, &x));
 
   area = p5 * hx * hy;
   PetscCall(VecScale(G, area));
@@ -1306,7 +737,6 @@ PetscErrorCode FormGradient(Tao tao, Vec X, Vec G, void *ptr){
   PetscCall(VecCopy(G,user->gradient));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
-
 
 /*
   EnergyDensity(Vec X,Vec E,void *ptr){
