@@ -5,6 +5,7 @@ set encoding utf8
 #set key at -4 , 4 
 set xrange [-6:6] #プロット範囲
 set yrange [-6:6]
+#set zrange [-6:6]
 #set xrange [-0.1:0.1] #プロット範囲
 #set yrange [-0.1:0.1]
 #set zrange[-0.5:0.5]
@@ -21,24 +22,22 @@ set mytics 2
 set size square            # same side lengths for x and y
 set xlabel 'x axis'             # x-axis
 set ylabel 'y axis'             # y-axis
-#set palette defined (0 'blue', 0.15 'red', 0.3 'yellow')
-#unset ztics                # do not show z-tics
-#set pm3d at b              # draw with colored contour 
-#set view 1,1               # view from the due north
 #set view x軸まわりの回転角, z軸まわりの回転角, グラフの拡大率, z軸の拡大率となるx軸,z軸まわりの回転角度は度数で指定する
-#set view 90,90,1,1
+#set view 90,90,1,1 # yz
+#set view 90,0,1,1 # xz
+set view 0,0,1,1 # xy
 
-splot "initialN=101.dat" with vectors lt 6 title "initial vec"
+#splot "initial=1_N=101.dat" with vectors lt 6 title "initial vec"
 #pause 5
-splot "solN=101.dat" with vectors lt 6 title "solution vec"
-pause 100
-#splot "gradN=101.dat" with vectors lt 6 title "gradient vec"
-#pause 30
+splot "solN=801.dat" with vectors lt 6 title "solution vec"
+pause 10
+splot "gradN=801.dat" with vectors lt 6 title "gradient vec"
+pause 300
 
 #output
-set terminal pngcairo
-set encoding utf8
-set output "initial=1.png"
+#set terminal pngcairo
+#set encoding utf8
+#set output "itr=1_xy.png"
 replot
 
 #画像出力用

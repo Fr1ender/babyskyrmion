@@ -18,6 +18,7 @@ def main():
 
   hx = 0.1
   hy = 0.1
+  
   region = (dim - 1) / 2.0 * hx
 
   phi1 = np.zeros((dim,dim))
@@ -32,9 +33,9 @@ def main():
       phi1[i][j] = data_field[i + j*dim] 
       phi2[i][j] = data_field[i + j*dim + nextfield]
       phi3[i][j] = data_field[i + j*dim + nextfield * 2]
-      g1[i][j] = data_grad[i + j*dim] * 100 
-      g2[i][j] = data_grad[i + j*dim + nextfield] * 100
-      g3[i][j] = data_grad[i + j*dim + nextfield * 2] * 100
+      g1[i][j] = data_grad[i + j*dim]
+      g2[i][j] = data_grad[i + j*dim + nextfield]
+      g3[i][j] = data_grad[i + j*dim + nextfield * 2]
 
   with open (r"../data/" + filename_g + str(dim) + ".dat",'w') as outgrad:
     with open (r"../data/" + filename_f + str(dim) + ".dat",'w') as outfield:
@@ -43,7 +44,9 @@ def main():
           for i in range(dim):
             #if(j == (dim - 1)/2 and i % 10 == 0):
             if(j % 10 == 0 and i % 10 == 0):
-              print( -region + i*hx,-region + j*hy, "0.0" ,phi1[i][j], phi2[i][j], phi3[i][j], sep=" ", file=outfield)
+            #if(i % 10 == 0 and j == 100):
+              #print( "0.0",-region + i*hx,-region + j*hx ,phi1[i][j], phi2[i][j], phi3[i][j], sep=" ", file=outfield)
+              print( -region + i*hx,-region + j*hx,"0.0",phi1[i][j], phi2[i][j], phi3[i][j], sep=" ", file=outfield)
               print( -region + i*hx,-region + j*hy, "0.0" ,g1[i][j], g2[i][j], g3[i][j], sep=" ", file=outgrad)
               print( -region + i*hx,-region + j*hy,g3[i][j], sep=" ", file=outp3)
               if(i == dim-1):

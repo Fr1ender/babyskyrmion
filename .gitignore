@@ -11,3 +11,4 @@ data_old/
 test/
 mpitest/
 .cache/clangd/index/
+sandbox1.txt
